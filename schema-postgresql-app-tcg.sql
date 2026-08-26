@@ -64,7 +64,7 @@ CREATE INDEX idx_product_is_hot ON product (is_hot) WHERE is_hot = true;
 CREATE TABLE store (
     id                       SERIAL PRIMARY KEY,
     name                     VARCHAR(150) NOT NULL,
-    website_url              TEXT NOT NULL,
+    website_url              TEXT NOT NULL UNIQUE,  -- clave estable para el UPSERT STORES (código) -> store (bloque B.1)
     sitemap_url              TEXT,
     platform                 store_platform NOT NULL,
     active                   BOOLEAN NOT NULL DEFAULT true,

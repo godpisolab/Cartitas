@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Optional
 
@@ -282,8 +283,74 @@ class WooCommerceScraper(BaseStoreScraper):
 
         return products
 
-    @staticmethod
-    def _parse_html_page(html: str):
+    # Defensa contra corrupción de datos EN LA PROPIA TIENDA (verificado en un
+    # producto real de Arte9: "CAJA A FIST OF DIVINE SPEED..."). No es que
+    # nuestro selector (.woocommerce-loop-product__title) sea demasiado
+    # ancho -- es específico y correcto. El dato en sí, tal como está
+    # guardado en el admin de WooCommerce de esa tienda, contiene además del
+    # nombre real un fragmento de HTML ESCAPADO de los elementos hermanos
+    # (cierre de </h2>, span.autor, span.price...) pegado dentro del propio
+    # campo de título -- probablemente un copy-paste accidental al cargar
+    # ese producto. BeautifulSoup lo desescapa correctamente (es texto, no
+    # marcado real), así que get_text() devuelve ~100KB de basura en vez del
+    # nombre. Se corta en el primer indicio de marcado filtrado para quedarse
+    # solo con la parte que sí es nombre real.
+    _LEAKED_MARKUP_RE = re.compile(r"</?[a-zA-Z][^<>]*>")
+
+    @classmethod
+    def _clean_leaked_markup(cls, text: Optional[str]) -> Optional[str]:
+        if not text:
+            return text
+        match = cls._LEAKED_MARKUP_RE.search(text)
+        if not match:
+            return text
+        return text[:match.start()].strip() or None
+
+    # Importe con símbolo € en cualquier orden ("12,95€" o "€ 12,95") --
+    # usado por _extract_price para separar varios importes concatenados en
+    # el mismo texto (ver docstring de _extract_price).
+    _MONEY_TOKEN_RE = re.compile(r"\d[\d.,]*\s*€|€\s*\d[\d.,]*")
+
+    @classmethod
+    def _extract_price(cls, item) -> Optional[float]:
+        """Precio ACTUAL de un item, no el tachado/original. En orden de
+        especificidad:
+
+        1) Markup estándar de oferta de WooCommerce (<ins>...</ins> = precio
+           nuevo, <del>...</del> = precio tachado) -- se busca DENTRO de
+           <ins> explícitamente.
+        2) `.amount`/`bdi` sueltos (precio único, sin oferta).
+        3) Fallback: todo el bloque `.price` como texto. Si contiene varios
+           importes con símbolo de moneda (verificado en Arte9: TODOS sus
+           productos muestran "tachado + -10% + precio final" como spans
+           hermanos dentro de un único `.price`, sin distinguir del/ins),
+           se coge el ÚLTIMO importe -- por convención visual el tachado va
+           primero y el que se cobra de verdad va al final.
+
+        Nota sobre por qué no basta con `item.select_one(".price .amount,
+        .price bdi, .price")` (lo que hacía este parser antes): con
+        selectores combinados por comas, BeautifulSoup/soupsieve devuelve el
+        PRIMER elemento en orden de documento que cumple CUALQUIERA de las
+        alternativas, no el más específico de la lista -- y el contenedor
+        `.price` (padre) aparece antes que su propio `.amount`/`bdi`
+        (hijo) en ese orden. En la práctica, esa selección combinada
+        terminaba usando siempre el contenedor `.price` completo (con su
+        texto tachado incluido si lo hay), nunca el importe específico."""
+        for selector in (".price ins .amount", ".price ins bdi", ".price ins",
+                         ".price .amount", ".price bdi"):
+            tag = item.select_one(selector)
+            if tag:
+                return parse_price_text(tag.get_text(strip=True))
+
+        price_tag = item.select_one(".price")
+        if not price_tag:
+            return None
+        text = price_tag.get_text(strip=True)
+        money_tokens = cls._MONEY_TOKEN_RE.findall(text)
+        return parse_price_text(money_tokens[-1] if money_tokens else text)
+
+    @classmethod
+    def _parse_html_page(cls, html: str):
         """Parser genérico para el tema Storefront por defecto de WooCommerce. Si
         una tienda usa un tema muy personalizado (p.ej. Madara, visto en Arte9),
         esto puede no encontrar nada -- en ese caso, prioriza conseguir que la
@@ -301,17 +368,17 @@ class WooCommerceScraper(BaseStoreScraper):
         for item in soup.select("li.product, div.product"):
             link_tag = item.select_one("a.woocommerce-LoopProduct-link, a.product-link, h2 a, h3 a")
             name_tag = item.select_one(".woocommerce-loop-product__title, .product-title, h2, h3")
-            price_tag = item.select_one(".price .amount, .price bdi, .price")
             img_tag = item.select_one("img")
 
             name = name_tag.get_text(strip=True) if name_tag else None
+            name = cls._clean_leaked_markup(name)
             if not name:
                 continue
 
             items.append({
                 "name": name,
                 "url": link_tag["href"] if link_tag and link_tag.has_attr("href") else None,
-                "price": parse_price_text(price_tag.get_text(strip=True)) if price_tag else None,
+                "price": cls._extract_price(item),
                 "stock_status": "AGOTADO" if "outofstock" in " ".join(item.get("class", [])) else "DISPONIBLE",
                 "image_url": (img_tag.get("src") or img_tag.get("data-src")) if img_tag else None,
             })

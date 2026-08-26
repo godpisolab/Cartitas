@@ -1431,9 +1431,13 @@ def print_summary(products: list[Product]) -> None:
 
 def main() -> None:
     """Punto de entrada del script: scrapea todas las STORES, escribe los
-    CSV de salida, imprime el resumen, y actualiza el histórico de precios en
-    SQLite si price_history.py está disponible (import diferido y opcional,
-    ver el try/except de más abajo)."""
+    CSV de salida, imprime el resumen, y persiste en PostgreSQL (bloque B de
+    cambios-necesarios-scraper.md -- store_product/price_history/
+    restock_event, ver persistence.py). A diferencia del antiguo hook
+    opcional a SQLite, esto ya no es un añadido que se pueda omitir en
+    silencio: solo se protege contra un fallo de CONEXIÓN/escritura puntual
+    (Postgres caído), no contra que falte la dependencia -- el CSV ya se
+    guardó antes de llegar aquí, así que un fallo de BBDD no lo pierde."""
     all_products, failed_stores = run_all_stores(STORES)
 
     print(f"\nTotal productos combinados de todas las tiendas: {len(all_products)}")
@@ -1449,16 +1453,12 @@ def main() -> None:
         print(f"Guardado en {OUTPUT_CSV}")
         print_summary(all_products)
 
-        # Persistencia en SQLite para histórico de precios (ranking de chollos,
-        # tendencias...). Import diferido para que scraper_unificado.py se
-        # pueda seguir usando solo con el CSV si price_history.py no está
-        # disponible en algún entorno (p.ej. una ejecución puntual de debug).
+        import persistence
         try:
-            from price_history import save_snapshot
-            run_id = save_snapshot(all_products)
-            print(f"Histórico de precios actualizado (run_id={run_id})")
-        except ImportError:
-            print("AVISO: price_history.py no encontrado, no se guarda histórico de precios")
+            persistence.persist_scrape_results(all_products, STORES)
+        except Exception as e:
+            print(f"ERROR: no se pudo persistir en Postgres ({type(e).__name__}: {e}) "
+                  f"-- el CSV ya se guardó igualmente")
 
 
 if __name__ == "__main__":

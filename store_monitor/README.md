@@ -10,8 +10,10 @@ Scraper unificado de precios y stock de **One Piece Card Game** en tiendas onlin
 - [Plataformas soportadas](#plataformas-soportadas)
 - [Cómo añadir una tienda nueva](#cómo-añadir-una-tienda-nueva)
 - [Robustez: timeouts, reintentos, circuit breaker](#robustez-timeouts-reintentos-circuit-breaker)
+- [Estándares de scraping respetuoso](#estándares-de-scraping-respetuoso)
 - [Consulta puntual de una tienda](#consulta-puntual-de-una-tienda)
 - [Salida](#salida)
+- [Persistencia en PostgreSQL](#persistencia-en-postgresql)
 - [Limitaciones conocidas](#limitaciones-conocidas)
 - [Estructura de archivos](#estructura-de-archivos)
 
@@ -21,7 +23,13 @@ Scraper unificado de precios y stock de **One Piece Card Game** en tiendas onlin
 pip install -r requirements.txt
 ```
 
-Dependencias: `requests` (HTTP), `cloudscraper` (bypass de Cloudflare para PrestaShop/WooCommerce/Odoo), `beautifulsoup4` (parseo HTML), `pybreaker` (circuit breaker).
+Dependencias: `requests` (HTTP), `cloudscraper` (bypass de Cloudflare para PrestaShop/WooCommerce/Odoo), `beautifulsoup4` (parseo HTML), `pybreaker` (circuit breaker), `psycopg2-binary` (persistencia en PostgreSQL, ver [Persistencia en PostgreSQL](#persistencia-en-postgresql)).
+
+Para levantar Postgres en local (desarrollo):
+
+```bash
+docker compose up -d   # desde la raíz del repo -- aplica schema-postgresql-app-tcg.sql automáticamente
+```
 
 ## Uso
 
@@ -210,6 +218,24 @@ result.error     # motivo legible, o None si status == "ok"
 - **`multi_tienda_one_piece.csv`**: una fila por producto/variante, con columnas `store, platform, id_product, name, variant, product_type, main_set, set_code, language, price, stock_status, url, sku, image_url`.
 - **`tiendas_fallidas.csv`**: `store, platform, motivo` — solo se genera si alguna tienda no dio productos.
 
+## Persistencia en PostgreSQL
+
+Además del CSV, `main()` escribe en PostgreSQL vía `persistence.py` (bloque B de `cambios-necesarios-scraper.md`). Ya no es un hook opcional como el antiguo `price_history.py` mencionado en versiones previas de este README — es parte central del flujo, aunque un fallo de conexión puntual no destruye el CSV (ya se guardó antes).
+
+Variable de entorno `DATABASE_URL` (por defecto apunta al contenedor de `docker-compose.yml`, puerto **5433** — no el 5432, para no chocar con un Postgres del sistema):
+
+```bash
+export DATABASE_URL="postgresql://cartitas:cartitas@localhost:5433/cartitas"
+```
+
+Dos escrituras, cada ejecución de `main()`:
+
+1. **`sync_stores()`** — `STORES` (código) → tabla `store`, `UPSERT` por `website_url`. Solo toca los campos ESTÁTICOS que existen en `StoreConfig` (`name`, `platform`); los dinámicos (`crawl_delay_seconds`, `backoff_until`, `last_scraped_at`, `robots_checked_at`) viven solo en la BBDD y esta sincronización nunca los pisa.
+2. **`persist_scrape_results()`** — los `Product` ya scrapeados → `store_product` + `price_history` + `restock_event`, en **una transacción por tienda** (no por producto, ni una única transacción gigante para las 56): un lote corrupto de una tienda hace `ROLLBACK` solo, sin perder las demás. Cada lote:
+   - Lee el `stock_status` **anterior** de `store_product` antes de sobrescribirlo, para detectar la transición `agotado → disponible` (restock). Un `store_url` sin fila previa nunca cuenta como restock (alta nueva, no restock), y tampoco cuenta si no hay `product_id` confirmado todavía (bloque C, matching, aún no implementado).
+   - Trunca defensivamente `raw_name`/`raw_variant`/`store_sku` a los límites del esquema si el HTML de una tienda concreta cuela texto anómalo (visto en Arte9, mismo tema Madara de la limitación de más abajo) — con aviso en logs, en vez de que ese único producto tire abajo la transacción de toda la tienda.
+   - Normaliza `stock_status` a los valores exactos del enum (minúscula) — el scraper interno sigue en mayúsculas, la traducción vive solo aquí.
+
 ## Limitaciones conocidas
 
 Documentadas directamente en los comentarios de `STORES` (bloque "Pendientes" al final de la lista):
@@ -226,6 +252,8 @@ store_monitor/
 ├── README.md
 ├── requirements.txt
 ├── base_script.py       -- configuración, modelo de datos, HTTP, dispatcher, main()
+├── store_state.py       -- estado runtime por tienda entre ejecuciones (robots.txt, backoff) -- ver .gitignore
+├── persistence.py       -- escritura a PostgreSQL (store/store_product/price_history/restock_event)
 └── scrapers/
     ├── __init__.py
     ├── base.py
