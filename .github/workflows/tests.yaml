@@ -97,3 +97,81 @@ jobs:
         with:
           name: coverage-report
           path: store_monitor/coverage.xml
+
+  test-api:
+    runs-on: ubuntu-latest
+
+    # Job separado del scraper a propósito -- api/ tiene su propio
+    # requirements.txt (fastapi/sqlmodel, sin cloudscraper/pybreaker/
+    # apscheduler) y su propio ciclo de vida, ver
+    # docs/estandares-implementacion-api.md sección 1. Comparte la MISMA
+    # cartitas_test que el scraper (mismo esquema), pero no tiene sentido
+    # instalar las dependencias del otro servicio para correr esto.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: cartitas
+          POSTGRES_PASSWORD: cartitas
+          POSTGRES_DB: cartitas_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U cartitas -d cartitas_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            api/requirements.txt
+            api/requirements-dev.txt
+
+      - name: Instalar dependencias
+        run: |
+          pip install -r api/requirements.txt
+          pip install -r api/requirements-dev.txt
+
+      - name: Aplicar esquema y seed a cartitas_test
+        env:
+          PGPASSWORD: cartitas
+        run: |
+          psql -h localhost -p 5433 -U cartitas -d cartitas_test -v ON_ERROR_STOP=1 -f schema-postgresql-app-tcg.sql
+          psql -h localhost -p 5433 -U cartitas -d cartitas_test -v ON_ERROR_STOP=1 -f seed-catalog-app-tcg.sql
+
+      # Mismo criterio que en el job del scraper: un SKIPPED en CI (con
+      # Postgres siempre disponible) significa que el entorno no se montó
+      # bien, no que falte una dependencia opcional.
+      - name: Ejecutar la suite completa
+        env:
+          TEST_DATABASE_URL: postgresql://cartitas:cartitas@localhost:5433/cartitas_test
+        working-directory: api
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m pytest -v -rs --cov --cov-report=term-missing --cov-report=xml \
+            | tee /tmp/pytest_api_output.txt
+          test_status=$?
+
+          if [ "$test_status" -ne 0 ]; then
+            exit "$test_status"
+          fi
+
+          if grep -q "^SKIPPED" /tmp/pytest_api_output.txt; then
+            echo "::error::Hay tests SKIPPED en CI -- el servicio de Postgres debería estar siempre disponible aquí. Revisa el paso 'Aplicar esquema y seed'."
+            grep "^SKIPPED" /tmp/pytest_api_output.txt
+            exit 1
+          fi
+
+      - name: Subir informe de cobertura
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-api
+          path: api/coverage.xml
