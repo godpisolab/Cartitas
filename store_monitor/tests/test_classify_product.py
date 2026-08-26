@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from base_script import classify_product, _detect_language
+from classify import classify_product, _detect_language
 
 
 class TestClassifyProductTable:

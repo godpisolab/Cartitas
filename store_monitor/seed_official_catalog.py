@@ -36,7 +36,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from base_script import classify_product
+from classify import classify_product
 from matcher import NOT_APPLICABLE_PRODUCT_TYPES, PRODUCT_TYPE_TO_CATEGORY_SLUG
 from persistence import get_connection
 

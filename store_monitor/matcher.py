@@ -36,12 +36,13 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Optional
 
-from base_script import Classification, classify_product
+from classify import classify_product
+from domain import Classification
 
 CONFIRMED_SIMILARITY_THRESHOLD = 0.6
 REVIEW_SIMILARITY_THRESHOLD = 0.35
 
-# Mapea Classification.product_type (base_script.CLASSIFICATION_RULES) a
+# Mapea Classification.product_type (classify.CLASSIFICATION_RULES) a
 # category.slug (D.2 -- los 13 tipos reales, sembrados por
 # seed-catalog-app-tcg.sql). LOTE_CARTAS y OTROS quedan fuera a propósito,
 # ver NOT_APPLICABLE_PRODUCT_TYPES.

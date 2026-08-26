@@ -1,20 +1,22 @@
 ---
 name: tcg-scraper-platforms
-description: Cómo identificar la plataforma de e-commerce de una tienda TCG española y añadirla a scraper_unificado.py (el scraper multi-tienda de comparación de precios de One Piece TCG). Úsala siempre que el usuario pase una URL nueva de tienda para "añadir al script", pregunte "en qué plataforma corre esta tienda", reporte que una tienda scrapeada muestra datos incorrectos (categoría equivocada, stock mal detectado, productos de más), o pida crear soporte para una plataforma nueva (un scraper que no sea Shopify/PrestaShop/WooCommerce/Odoo/OpenCart). Contiene las firmas de URL para identificar cada plataforma sin necesidad de adivinar, y una lista de errores ya cometidos (y sus arreglos) para no repetirlos.
+description: Cómo identificar la plataforma de e-commerce de una tienda TCG española y añadirla al scraper multi-tienda de comparación de precios de One Piece TCG (store_monitor/, entry point base_script.py). Úsala siempre que el usuario pase una URL nueva de tienda para "añadir al script", pregunte "en qué plataforma corre esta tienda", reporte que una tienda scrapeada muestra datos incorrectos (categoría equivocada, stock mal detectado, productos de más), o pida crear soporte para una plataforma nueva (un scraper que no sea Shopify/PrestaShop/WooCommerce/Odoo/OpenCart/GenericJsonLd). Contiene las firmas de URL para identificar cada plataforma sin necesidad de adivinar, y una lista de errores ya cometidos (y sus arreglos) para no repetirlos.
 ---
 
-# Añadir tiendas a scraper_unificado.py
+# Añadir tiendas al scraper de store_monitor/
 
 Este documento condensa lo aprendido construyendo y ampliando el scraper multi-tienda: cómo identificar la plataforma de una tienda nueva, cómo configurarla correctamente, y una lista de errores reales ya cometidos para no repetirlos.
 
 ## Arquitectura del script (recordatorio rápido)
 
-- `StoreConfig` — un dataclass por tienda. **Se autovalida en `__post_init__`**: si falta un campo obligatorio para su plataforma, lanza `ValueError` al arrancar el script en vez de scrapear mal en silencio. Cualquier plataforma nueva debe seguir este mismo patrón.
-- `Product` — fila normalizada común a todas las plataformas (incluye `variant`, pensado desde el diseño para productos con variantes de idioma/grading).
-- `BaseStoreScraper` — clase abstracta con `scrape() -> list[Product]`. Cada plataforma es una subclase.
-- `SCRAPER_CLASSES: dict[Platform, type[BaseStoreScraper]]` — el dispatcher. Añadir una plataforma nueva = añadir su entrada aquí.
-- `request_with_retries()` — reintentos con backoff para TODAS las peticiones HTTP. Cualquier scraper nuevo debe usarlo, nunca `session.get()` a pelo.
-- `StoreLogger` — une `print()` + marcar actividad (para el timeout por inactividad) en una llamada.
+El proyecto real vive en `store_monitor/` y el entry point se llama `base_script.py` (`python base_script.py`), no `scraper_unificado.py`. Desde el refactor de 2026-08-26 (ver `docs/estandares_organizacion_codigo.md`) el código está partido en capas, cada una en su propio módulo dentro de `store_monitor/`:
+
+- `StoreConfig` (en `domain.py`) — un dataclass por tienda, con las entradas reales en `STORES` (`config.py`). **Se autovalida en `__post_init__`**: si falta un campo obligatorio para su plataforma, lanza `ValueError` al arrancar el script en vez de scrapear mal en silencio. Cualquier plataforma nueva debe seguir este mismo patrón.
+- `Product` (en `domain.py`) — fila normalizada común a todas las plataformas (incluye `variant`, pensado desde el diseño para productos con variantes de idioma/grading).
+- `BaseStoreScraper` (en `scrapers/base.py`) — clase abstracta con `scrape() -> list[Product]`. Cada plataforma es una subclase, en su propio fichero dentro de `scrapers/`.
+- `SCRAPER_CLASSES: dict[Platform, type[BaseStoreScraper]]` (en `scrapers/__init__.py`) — el registro que usa el dispatcher (`dispatcher.py`) para saber qué clase instanciar. Añadir una plataforma nueva = añadir su entrada aquí.
+- `request_with_retries()` (en `http_client.py`) — reintentos con backoff para TODAS las peticiones HTTP. Cualquier scraper nuevo debe usarlo, nunca `session.get()` a pelo.
+- `StoreLogger` (en `http_client.py`) — une `print()` + marcar actividad (para el timeout por inactividad) en una llamada.
 
 ## Proceso para añadir una tienda nueva
 
@@ -56,8 +58,8 @@ La validación de `StoreConfig` exige al menos un mecanismo de *scoping* (`categ
 
 Nunca confíes en que el scraper funciona solo porque compila. Antes de darlo por bueno:
 
-```python
-python3 -m py_compile scraper_unificado.py && python3 -m pyflakes scraper_unificado.py
+```bash
+cd store_monitor && python3 -m py_compile config.py domain.py && python3 -m pyflakes config.py domain.py scrapers/*.py
 ```
 
 Y escribe un test con `unittest.mock` que simule la respuesta HTTP con datos representativos de ESA tienda (nombre de producto real, HTML de categoría real si lo tienes) y verifique: cuántos productos pasan el filtro, que el precio se parsea bien, y sobre todo — el stock.

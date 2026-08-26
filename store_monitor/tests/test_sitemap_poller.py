@@ -15,7 +15,7 @@ import pytest
 
 import persistence
 import sitemap_poller
-from base_script import Platform, Product, RefreshedVariant, RefreshOutcome, StoreConfig
+from domain import Platform, Product, RefreshedVariant, RefreshOutcome, StoreConfig
 
 
 def sitemap_xml(urls: list[str]) -> str:

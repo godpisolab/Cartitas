@@ -53,20 +53,30 @@ Tarda entre 2 y 3 minutos las 56 tiendas (las que usan `Platform.ODOO` o `Platfo
 
 ## Arquitectura
 
+Refactorizado (2026-08-26, ver `docs/estandares_organizacion_codigo.md`) en capas de dependencia unidireccional -- cada módulo solo depende de los de su izquierda, nunca al revés, así que ya no hace falta ningún import diferido dentro de una función para evitar un ciclo:
+
 ```
-base_script.py
-├── Platform (enum)          -- las 6 plataformas soportadas
-├── StoreConfig (dataclass)  -- config de una tienda; se autovalida en __post_init__
-├── STORES (list)            -- las 56 tiendas configuradas
-├── Product (dataclass)      -- fila normalizada, idéntica para todas las plataformas
-├── classify_product()       -- deduce tipo/set/idioma a partir del nombre
-├── parse_price_text() / parse_price_minor_unit()  -- parseo de precios
-├── build_session() / request_with_retries()       -- capa HTTP compartida
-├── StoreLogger              -- print + marca de actividad + recuerda el último error
-├── scrape_store()           -- instancia el scraper de una tienda y lo ejecuta
-├── query_store()            -- scrapea UNA tienda de forma aislada (con circuit breaker)
-├── run_all_stores()         -- scrapea TODAS las tiendas en paralelo (usado por main())
-└── main()                   -- entry point: batch completo + CSV + resumen + SQLite opcional
+domain.py → config.py → classify.py → persistence.py → store_state.py → http_client.py → dispatcher.py → scrapers/ → base_script.py
+```
+
+```
+domain.py         -- Platform (enum), StoreConfig, Product, Classification, RefreshedVariant,
+                      RefreshOutcome: dataclasses puros, cero imports internos del proyecto.
+config.py         -- STORES (las 56 tiendas configuradas), IDENTIFIABLE_USER_AGENT y demás
+                      constantes de identidad HTTP (A.1), OUTPUT_CSV/FAILED_STORES_CSV.
+classify.py       -- classify_product() / _detect_language() (deduce tipo/set/idioma del
+                      nombre), parse_price_text() / parse_price_minor_unit(). Lógica pura,
+                      sin red ni BBDD.
+http_client.py    -- build_session() / request_with_retries() (reintentos + backoff + A.3/A.4),
+                      StoreLogger, conditional_headers(). Capa HTTP compartida por dispatcher y scrapers.
+dispatcher.py     -- scrape_store()/query_store()/run_all_stores(), robots.txt (A.2, cacheado
+                      vía store_state), circuit breaker por tienda, backoff persistido entre
+                      ejecuciones (A.3).
+scrapers/         -- un archivo por plataforma; SCRAPER_CLASSES (registro Platform -> clase)
+                      vive en scrapers/__init__.py porque tanto dispatcher.py como
+                      persistence.py (refresh_hot_products, E.2) lo necesitan.
+base_script.py    -- entry point (`python base_script.py`): junta dispatcher + persistence +
+                      matcher + restock_notifier para el barrido batch completo, CSV, resumen.
 
 scrapers/
 ├── base.py            -- BaseStoreScraper (interfaz común)
@@ -78,7 +88,7 @@ scrapers/
 └── generic_jsonld.py   -- listado configurable + JSON-LD por producto (CMS a medida)
 ```
 
-**Por qué está separado así:** `base_script.py` tiene todo lo que es *transversal* a cualquier plataforma (configuración, modelo de datos, HTTP, dispatcher, salida). `scrapers/` tiene un archivo por plataforma, cada uno con la lógica específica de cómo esa plataforma expone su catálogo. Un scraper nuevo solo necesita implementar `scrape() -> list[Product]`.
+**Por qué está separado así:** cada capa tiene una única responsabilidad y solo puede depender de las capas por debajo de ella (ver la regla completa en `docs/estandares_organizacion_codigo.md`, sección 2) -- añadir una tienda solo toca `config.py`, cambiar cómo se reintenta una petición solo toca `http_client.py`, etc. `scrapers/` tiene un archivo por plataforma, cada uno con la lógica específica de cómo esa plataforma expone su catálogo; un scraper nuevo solo necesita implementar `scrape() -> list[Product]` y depende únicamente de `domain.py`/`http_client.py`/`classify.py`, nunca del dispatcher.
 
 ### El flujo de una tienda
 
@@ -145,7 +155,7 @@ El parser de JSON-LD contempla variaciones reales encontradas: `@type` en minús
 
 ## Cómo añadir una tienda nueva
 
-Añade una entrada a `STORES` en `base_script.py` con el campo correspondiente a su plataforma. `StoreConfig.__post_init__` falla con un mensaje claro si falta algo imprescindible — esto es intencional, es la corrección estructural de un bug real que tuvo este proyecto (una tienda WooCommerce sin categoría bien acotada acabó trayéndose todo el catálogo de la tienda, no solo One Piece).
+Añade una entrada a `STORES` en `config.py` con el campo correspondiente a su plataforma. `StoreConfig.__post_init__` (en `domain.py`) falla con un mensaje claro si falta algo imprescindible — esto es intencional, es la corrección estructural de un bug real que tuvo este proyecto (una tienda WooCommerce sin categoría bien acotada acabó trayéndose todo el catálogo de la tienda, no solo One Piece).
 
 ```python
 # Shopify
@@ -366,16 +376,21 @@ Documentadas directamente en los comentarios de `STORES` (bloque "Pendientes" al
 store_monitor/
 ├── README.md
 ├── requirements.txt
-├── base_script.py       -- configuración, modelo de datos, HTTP, dispatcher, main()
-├── store_state.py       -- estado runtime por tienda entre ejecuciones (robots.txt, backoff) -- columnas de `store`
-├── persistence.py       -- escritura a PostgreSQL (store/store_product/price_history/restock_event)
-├── matcher.py           -- matching store_product -> product canónico (pg_trgm + reglas)
+├── domain.py             -- dataclasses/enum puros (Platform, StoreConfig, Product, Classification...)
+├── config.py             -- STORES (56 tiendas) + constantes de identidad HTTP (A.1)
+├── classify.py           -- classify_product(), parse_price_text()/parse_price_minor_unit()
+├── http_client.py        -- build_session(), request_with_retries(), StoreLogger, conditional_headers()
+├── dispatcher.py         -- scrape_store()/query_store()/run_all_stores(), robots.txt, circuit breaker
+├── base_script.py        -- entry point (`python base_script.py`): batch completo + CSV + main()
+├── store_state.py        -- estado runtime por tienda entre ejecuciones (robots.txt, backoff) -- columnas de `store`
+├── persistence.py        -- escritura a PostgreSQL (store/store_product/price_history/restock_event)
+├── matcher.py            -- matching store_product -> product canónico (pg_trgm + reglas)
 ├── seed_official_catalog.py -- siembra product desde data/one_piece_tcg_products.json
-├── sitemap_poller.py    -- E.1: descubrimiento temprano vía sitemap.xml
-├── restock_notifier.py  -- E.3: Web Push + VAPID al detectar restock
-├── scheduler.py         -- E.1: orquestador persistente (APScheduler)
+├── sitemap_poller.py     -- E.1: descubrimiento temprano vía sitemap.xml
+├── restock_notifier.py   -- E.3: Web Push + VAPID al detectar restock
+├── scheduler.py          -- E.1: orquestador persistente (APScheduler)
 └── scrapers/
-    ├── __init__.py
+    ├── __init__.py       -- SCRAPER_CLASSES (registro Platform -> clase)
     ├── base.py
     ├── shopify.py
     ├── prestashop.py

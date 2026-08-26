@@ -46,7 +46,7 @@ class TestBuildScheduler:
 
 class TestJobHotRefresh:
     def test_llama_a_refresh_hot_products_y_notifica_y_cierra_la_conexion(self, monkeypatch):
-        import base_script
+        import config
         import persistence
         import restock_notifier
 
@@ -55,7 +55,7 @@ class TestJobHotRefresh:
         monkeypatch.setattr(persistence, "refresh_hot_products", MagicMock(return_value=({}, [42])))
         mock_notify = MagicMock()
         monkeypatch.setattr(restock_notifier, "notify_for_restock_events", mock_notify)
-        monkeypatch.setattr(base_script, "STORES", [])
+        monkeypatch.setattr(config, "STORES", [])
 
         scheduler.job_hot_refresh()
 
@@ -63,13 +63,13 @@ class TestJobHotRefresh:
         fake_conn.close.assert_called_once()
 
     def test_excepcion_no_propaga_y_cierra_la_conexion_igual(self, monkeypatch, capsys):
-        import base_script
+        import config
         import persistence
 
         fake_conn = MagicMock()
         monkeypatch.setattr(persistence, "get_connection", MagicMock(return_value=fake_conn))
         monkeypatch.setattr(persistence, "refresh_hot_products", MagicMock(side_effect=RuntimeError("boom")))
-        monkeypatch.setattr(base_script, "STORES", [])
+        monkeypatch.setattr(config, "STORES", [])
 
         scheduler.job_hot_refresh()  # no debe lanzar
 
@@ -79,7 +79,7 @@ class TestJobHotRefresh:
 
 class TestJobSitemapPoll:
     def test_llama_a_poll_sitemaps_y_cierra_la_conexion(self, monkeypatch):
-        import base_script
+        import config
         import persistence
         import sitemap_poller
 
@@ -87,7 +87,7 @@ class TestJobSitemapPoll:
         monkeypatch.setattr(persistence, "get_connection", MagicMock(return_value=fake_conn))
         mock_poll = MagicMock()
         monkeypatch.setattr(sitemap_poller, "poll_sitemaps", mock_poll)
-        monkeypatch.setattr(base_script, "STORES", [])
+        monkeypatch.setattr(config, "STORES", [])
 
         scheduler.job_sitemap_poll()
 
@@ -95,14 +95,14 @@ class TestJobSitemapPoll:
         fake_conn.close.assert_called_once()
 
     def test_excepcion_no_propaga(self, monkeypatch, capsys):
-        import base_script
+        import config
         import persistence
         import sitemap_poller
 
         fake_conn = MagicMock()
         monkeypatch.setattr(persistence, "get_connection", MagicMock(return_value=fake_conn))
         monkeypatch.setattr(sitemap_poller, "poll_sitemaps", MagicMock(side_effect=RuntimeError("boom")))
-        monkeypatch.setattr(base_script, "STORES", [])
+        monkeypatch.setattr(config, "STORES", [])
 
         scheduler.job_sitemap_poll()  # no debe lanzar
 

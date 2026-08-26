@@ -8,7 +8,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from base_script import Platform, StoreConfig, StoreLogger
+from domain import Platform, StoreConfig
+from http_client import StoreLogger
 from scrapers.woocommerce import WooCommerceScraper
 
 

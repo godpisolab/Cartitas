@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from base_script import Platform, StoreConfig, StoreLogger
+from domain import Platform, StoreConfig
+from http_client import StoreLogger
 from scrapers.odoo import OdooScraper
 
 

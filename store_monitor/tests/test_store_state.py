@@ -8,7 +8,7 @@ from __future__ import annotations
 import time
 
 import store_state
-from base_script import Platform, StoreConfig
+from domain import Platform, StoreConfig
 
 
 def make_config(domain="https://tienda.example"):

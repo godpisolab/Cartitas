@@ -5,7 +5,9 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from base_script import DEFAULT_DELAY, Product, RefreshOutcome, StoreConfig, StoreLogger, classify_product
+from classify import classify_product
+from domain import Product, RefreshOutcome, StoreConfig
+from http_client import DEFAULT_DELAY, StoreLogger
 
 
 class BaseStoreScraper(ABC):

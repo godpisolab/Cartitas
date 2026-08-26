@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from base_script import Platform, StoreConfig
+from domain import Platform, StoreConfig
 
 
 class TestShopifyValidation:

@@ -19,6 +19,12 @@ update_state() se limita a avisar por log en vez de fallar. Un Postgres
 caído no debe impedir que el scraper funcione, igual que ya ocurre con el
 resto de la persistencia (ver persist_scrape_results en persistence.py).
 
+Importa persistence a nivel de módulo (no en diferido): store_state es
+"estado/caché", una capa que puede depender de persistencia si vive en BBDD
+(ver docs/estandares_organizacion_codigo.md, sección 2) -- ya no hace falta
+diferir el import para evitar un ciclo, porque persistence.py ya no importa
+nada de este módulo ni de capas superiores.
+
 LIMITACIÓN conocida: en una base de datos recién creada, la fila de
 `store` para una tienda no existe hasta que corre sync_stores() (al final
 del primer ciclo completo) -- update_state() antes de eso no tiene fila
@@ -31,6 +37,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
+
+import persistence
 
 
 @dataclass
@@ -66,8 +74,6 @@ def get_state(domain: str) -> StoreState:
     misma clave estable que usa B.1 para el UPSERT de `store`), o los
     valores por defecto si la tienda no tiene fila todavía o Postgres no
     está disponible."""
-    import persistence  # import diferido: evita el ciclo persistence -> base_script -> store_state
-
     try:
         conn = persistence.get_connection()
     except Exception as e:
@@ -109,8 +115,6 @@ def update_state(domain: str, **fields) -> None:
     LIMITACIÓN en el docstring del módulo), no falla -- avisa por log."""
     if not fields:
         return
-
-    import persistence  # import diferido: evita el ciclo persistence -> base_script -> store_state
 
     try:
         conn = persistence.get_connection()

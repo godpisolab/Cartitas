@@ -23,7 +23,8 @@ from typing import Optional
 import psycopg2
 import psycopg2.extras
 
-from base_script import Product, RefreshOutcome, SCRAPER_CLASSES, StoreConfig
+from domain import Product, RefreshOutcome, StoreConfig
+from scrapers import SCRAPER_CLASSES
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",

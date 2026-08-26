@@ -30,6 +30,7 @@ import os
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 import base_script
+import config
 import matcher
 import persistence
 import restock_notifier
@@ -57,7 +58,7 @@ def job_hot_refresh() -> None:
     print("=== [scheduler] refresco de calientes: empezando ===")
     conn = persistence.get_connection()
     try:
-        _counts, restock_event_ids = persistence.refresh_hot_products(conn, base_script.STORES)
+        _counts, restock_event_ids = persistence.refresh_hot_products(conn, config.STORES)
         restock_notifier.notify_for_restock_events(conn, restock_event_ids)
     except Exception as e:
         print(f"[scheduler] ERROR en refresco de calientes: {type(e).__name__}: {e}")
@@ -71,7 +72,7 @@ def job_sitemap_poll() -> None:
     print("=== [scheduler] polling de sitemap: empezando ===")
     conn = persistence.get_connection()
     try:
-        sitemap_poller.poll_sitemaps(conn, base_script.STORES)
+        sitemap_poller.poll_sitemaps(conn, config.STORES)
     except Exception as e:
         print(f"[scheduler] ERROR en polling de sitemap: {type(e).__name__}: {e}")
     finally:

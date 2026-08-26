@@ -15,9 +15,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import base_script
+import dispatcher
 import store_state
-from base_script import Platform, StoreConfig, StoreLogger
+from domain import Platform, StoreConfig
+from http_client import StoreLogger
 
 
 @pytest.fixture
@@ -33,8 +34,8 @@ def fake_store_state(monkeypatch):
             setattr(current, key, value)
         data[domain] = current
 
-    monkeypatch.setattr(base_script.store_state, "get_state", fake_get_state)
-    monkeypatch.setattr(base_script.store_state, "update_state", fake_update_state)
+    monkeypatch.setattr(dispatcher.store_state, "get_state", fake_get_state)
+    monkeypatch.setattr(dispatcher.store_state, "update_state", fake_update_state)
     return data
 
 
@@ -43,7 +44,7 @@ def reset_breakers(monkeypatch):
     """Los circuit breakers viven en un dict global de módulo (uno por
     label) -- sin resetearlo, el estado de un test contaminaría el
     siguiente si comparten label."""
-    monkeypatch.setattr(base_script, "_breakers", {})
+    monkeypatch.setattr(dispatcher, "_breakers", {})
 
 
 def make_logger(label: str = "TiendaTest") -> StoreLogger:
@@ -63,7 +64,7 @@ class TestGetRobotsRules:
     def test_primera_llamada_descarga_y_cachea(self, requests_mock, fake_store_state):
         cfg = shopify_config()
         requests_mock.get("https://tienda-test.example/robots.txt", text="User-agent: *\nDisallow:\n")
-        rules = base_script.get_robots_rules(cfg, "https://tienda-test.example/collections/one-piece",
+        rules = dispatcher.get_robots_rules(cfg, "https://tienda-test.example/collections/one-piece",
                                               make_logger())
         assert rules.disallowed is False
         assert requests_mock.call_count == 1
@@ -73,33 +74,33 @@ class TestGetRobotsRules:
         cfg = shopify_config()
         requests_mock.get("https://tienda-test.example/robots.txt", text="User-agent: *\nDisallow:\n")
         target = "https://tienda-test.example/collections/one-piece"
-        base_script.get_robots_rules(cfg, target, make_logger())
-        base_script.get_robots_rules(cfg, target, make_logger())
+        dispatcher.get_robots_rules(cfg, target, make_logger())
+        dispatcher.get_robots_rules(cfg, target, make_logger())
         assert requests_mock.call_count == 1
 
     def test_llamada_tras_expirar_el_ttl_vuelve_a_pedir(self, requests_mock, fake_store_state):
         cfg = shopify_config()
         requests_mock.get("https://tienda-test.example/robots.txt", text="User-agent: *\nDisallow:\n")
         target = "https://tienda-test.example/collections/one-piece"
-        base_script.get_robots_rules(cfg, target, make_logger())
+        dispatcher.get_robots_rules(cfg, target, make_logger())
         # Simula que la caché es de hace más de ROBOTS_CACHE_TTL_SECONDS.
         stale = fake_store_state[cfg.domain]
-        stale.robots_checked_at = time.time() - base_script.ROBOTS_CACHE_TTL_SECONDS - 1
-        base_script.get_robots_rules(cfg, target, make_logger())
+        stale.robots_checked_at = time.time() - dispatcher.ROBOTS_CACHE_TTL_SECONDS - 1
+        dispatcher.get_robots_rules(cfg, target, make_logger())
         assert requests_mock.call_count == 2
 
     def test_disallow_cubriendo_la_url_objetivo(self, requests_mock, fake_store_state):
         cfg = shopify_config()
         requests_mock.get("https://tienda-test.example/robots.txt",
                            text="User-agent: *\nDisallow: /collections/one-piece\n")
-        rules = base_script.get_robots_rules(cfg, "https://tienda-test.example/collections/one-piece",
+        rules = dispatcher.get_robots_rules(cfg, "https://tienda-test.example/collections/one-piece",
                                               make_logger())
         assert rules.disallowed is True
 
     def test_robots_txt_404_se_asume_permisivo(self, requests_mock, fake_store_state):
         cfg = shopify_config()
         requests_mock.get("https://tienda-test.example/robots.txt", status_code=404)
-        rules = base_script.get_robots_rules(cfg, "https://tienda-test.example/collections/one-piece",
+        rules = dispatcher.get_robots_rules(cfg, "https://tienda-test.example/collections/one-piece",
                                               make_logger())
         assert rules.disallowed is False
 
@@ -108,7 +109,7 @@ class TestGetRobotsRules:
         cfg = shopify_config()
         requests_mock.get("https://tienda-test.example/robots.txt", exc=requests.exceptions.ConnectionError)
         logger = make_logger()
-        rules = base_script.get_robots_rules(cfg, "https://tienda-test.example/collections/one-piece", logger)
+        rules = dispatcher.get_robots_rules(cfg, "https://tienda-test.example/collections/one-piece", logger)
         assert rules.disallowed is False
         assert "AVISO" in logger.last_error
 
@@ -116,7 +117,7 @@ class TestGetRobotsRules:
         cfg = shopify_config()
         requests_mock.get("https://tienda-test.example/robots.txt",
                            text="User-agent: *\nCrawl-delay: 5\n")
-        rules = base_script.get_robots_rules(cfg, "https://tienda-test.example/collections/one-piece",
+        rules = dispatcher.get_robots_rules(cfg, "https://tienda-test.example/collections/one-piece",
                                               make_logger())
         assert rules.crawl_delay == 5.0
 
@@ -129,48 +130,48 @@ class TestCircuitBreaker:
     def test_tres_fallos_seguidos_abre_el_circuito_sin_ejecutar_scrape_store_la_cuarta_vez(self, monkeypatch):
         cfg = shopify_config("TiendaRota")
         mock_scrape = MagicMock(side_effect=RuntimeError("boom"))
-        monkeypatch.setattr(base_script, "scrape_store", mock_scrape)
+        monkeypatch.setattr(dispatcher, "scrape_store", mock_scrape)
 
         # Las primeras BREAKER_FAIL_MAX - 1 llamadas fallan con normalidad.
-        for _ in range(base_script.BREAKER_FAIL_MAX - 1):
-            result = base_script.query_store(cfg, timeout=1, poll_interval=1)
+        for _ in range(dispatcher.BREAKER_FAIL_MAX - 1):
+            result = dispatcher.query_store(cfg, timeout=1, poll_interval=1)
             assert result.status == "error"
 
         # Comportamiento real de pybreaker (verificado, no asumido): la
         # llamada que ALCANZA BREAKER_FAIL_MAX ya abre el circuito en esa
         # misma invocación -- no espera a la siguiente para reportarlo.
-        result = base_script.query_store(cfg, timeout=1, poll_interval=1)
+        result = dispatcher.query_store(cfg, timeout=1, poll_interval=1)
         assert result.status == "circuit_open"
-        assert mock_scrape.call_count == base_script.BREAKER_FAIL_MAX
+        assert mock_scrape.call_count == dispatcher.BREAKER_FAIL_MAX
 
         # Y la siguiente ya no ejecuta scrape_store en absoluto.
-        result = base_script.query_store(cfg, timeout=1, poll_interval=1)
+        result = dispatcher.query_store(cfg, timeout=1, poll_interval=1)
         assert result.status == "circuit_open"
-        assert mock_scrape.call_count == base_script.BREAKER_FAIL_MAX  # sin cambios, no se llamó de nuevo
+        assert mock_scrape.call_count == dispatcher.BREAKER_FAIL_MAX  # sin cambios, no se llamó de nuevo
 
     def test_circuito_se_cierra_tras_reset_timeout(self, monkeypatch):
-        monkeypatch.setattr(base_script, "BREAKER_RESET_TIMEOUT", 0.05)
+        monkeypatch.setattr(dispatcher, "BREAKER_RESET_TIMEOUT", 0.05)
         cfg = shopify_config("TiendaRota2")
         mock_scrape = MagicMock(side_effect=RuntimeError("boom"))
-        monkeypatch.setattr(base_script, "scrape_store", mock_scrape)
+        monkeypatch.setattr(dispatcher, "scrape_store", mock_scrape)
 
-        for _ in range(base_script.BREAKER_FAIL_MAX):
-            base_script.query_store(cfg, timeout=1, poll_interval=1)
-        assert base_script.query_store(cfg, timeout=1, poll_interval=1).status == "circuit_open"
+        for _ in range(dispatcher.BREAKER_FAIL_MAX):
+            dispatcher.query_store(cfg, timeout=1, poll_interval=1)
+        assert dispatcher.query_store(cfg, timeout=1, poll_interval=1).status == "circuit_open"
 
         time.sleep(0.1)  # supera el reset_timeout parcheado a 0.05s
 
         mock_scrape.side_effect = None
         mock_scrape.return_value = []
-        result = base_script.query_store(cfg, timeout=1, poll_interval=1)
+        result = dispatcher.query_store(cfg, timeout=1, poll_interval=1)
         assert result.status != "circuit_open"
 
     def test_empty_sin_motivo_no_cuenta_como_fallo_del_circuito(self, monkeypatch):
         cfg = shopify_config("TiendaVaciaLegitima")
-        monkeypatch.setattr(base_script, "scrape_store", MagicMock(return_value=[]))
+        monkeypatch.setattr(dispatcher, "scrape_store", MagicMock(return_value=[]))
 
-        for _ in range(base_script.BREAKER_FAIL_MAX + 1):
-            result = base_script.query_store(cfg, timeout=1, poll_interval=1)
+        for _ in range(dispatcher.BREAKER_FAIL_MAX + 1):
+            result = dispatcher.query_store(cfg, timeout=1, poll_interval=1)
             assert result.status == "empty"
             assert result.error is None  # nunca abre el circuito
 
@@ -178,13 +179,13 @@ class TestCircuitBreaker:
         cfg = shopify_config("TiendaExcluidaPorRobots")
 
         def fake_scrape_store(config, logger):
-            logger.log(f"{base_script.ROBOTS_EXCLUSION_LOG_PREFIX} (test)")
+            logger.log(f"{dispatcher.ROBOTS_EXCLUSION_LOG_PREFIX} (test)")
             return []
 
-        monkeypatch.setattr(base_script, "scrape_store", fake_scrape_store)
+        monkeypatch.setattr(dispatcher, "scrape_store", fake_scrape_store)
 
-        for _ in range(base_script.BREAKER_FAIL_MAX + 1):
-            result = base_script.query_store(cfg, timeout=1, poll_interval=1)
+        for _ in range(dispatcher.BREAKER_FAIL_MAX + 1):
+            result = dispatcher.query_store(cfg, timeout=1, poll_interval=1)
             assert result.status == "empty"
 
         # Si contara como fallo, la última llamada habría abierto el circuito.
@@ -200,9 +201,9 @@ class TestBackoffPersistido:
         cfg = shopify_config("TiendaEnBackoff")
         fake_store_state[cfg.domain] = store_state.StoreState(backoff_until=time.time() + 900)
         mock_scrape = MagicMock(return_value=[])
-        monkeypatch.setattr(base_script, "scrape_store", mock_scrape)
+        monkeypatch.setattr(dispatcher, "scrape_store", mock_scrape)
 
-        products, failed = base_script.run_all_stores([cfg])
+        products, failed = dispatcher.run_all_stores([cfg])
 
         assert products == []
         assert len(failed) == 1
@@ -211,10 +212,10 @@ class TestBackoffPersistido:
 
     def test_tres_fallos_en_ejecuciones_distintas_fija_backoff(self, monkeypatch, fake_store_state):
         cfg = shopify_config("TiendaQueFalla")
-        monkeypatch.setattr(base_script, "scrape_store", MagicMock(side_effect=RuntimeError("boom")))
+        monkeypatch.setattr(dispatcher, "scrape_store", MagicMock(side_effect=RuntimeError("boom")))
 
-        for i in range(base_script.STORE_BACKOFF_FAILURE_THRESHOLD):
-            base_script.run_all_stores([cfg])
+        for i in range(dispatcher.STORE_BACKOFF_FAILURE_THRESHOLD):
+            dispatcher.run_all_stores([cfg])
             state = fake_store_state[cfg.domain]
             assert state.consecutive_failures == i + 1
 
@@ -224,14 +225,14 @@ class TestBackoffPersistido:
     def test_un_exito_resetea_el_contador_de_fallos(self, monkeypatch, fake_store_state):
         cfg = shopify_config("TiendaQueSeRecupera")
         fake_store_state[cfg.domain] = store_state.StoreState(consecutive_failures=2)
-        monkeypatch.setattr(base_script, "scrape_store", MagicMock(return_value=[
-            base_script.Product(store=cfg.label, platform="shopify", id_product="1", name="x",
+        monkeypatch.setattr(dispatcher, "scrape_store", MagicMock(return_value=[
+            dispatcher.Product(store=cfg.label, platform="shopify", id_product="1", name="x",
                                  variant=None, product_type="OTROS", main_set=None, set_code=None,
                                  language=None, price=1.0, stock_status="DISPONIBLE", url="https://x",
                                  sku=None, image_url=None)
         ]))
 
-        base_script.run_all_stores([cfg])
+        dispatcher.run_all_stores([cfg])
 
         assert fake_store_state[cfg.domain].consecutive_failures == 0
         assert fake_store_state[cfg.domain].backoff_until is None

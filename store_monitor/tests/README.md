@@ -37,12 +37,12 @@ Cada test que usa `db_conn` parte de tablas **vacías** (`TRUNCATE` automático 
 
 | Fichero | Módulo bajo test | Qué prueba |
 |---|---|---|
-| `test_classify_product.py` | `base_script.classify_product`, `_detect_language` | Tabla de clasificación completa, la regresión de `" en "` como preposición española, el límite real de la regex de `main_set` (`OP-99` vs `OP-100`), y las 5 ramas de idioma (EN/JP/ES/KR + fallback a `variant_title`) |
-| `test_parse_price.py` | `base_script.parse_price_text`, `parse_price_minor_unit` | Formato español/anglosajón, símbolo antes/después, tipos numéricos directos, entradas vacías/inválidas sin excepción |
-| `test_store_config.py` | `base_script.StoreConfig.__post_init__` | Validación de configuración por plataforma — la corrección estructural del bug real de Arte9/ZIAL (WooCommerce sin scoping) |
-| `test_request_with_retries.py` | `base_script.request_with_retries` y compañía | Reintentos (200/500/timeout/404/304), `Retry-After` (segundos, fecha HTTP, exceso), reto anti-bot de cookie JS, fallback SSL — HTTP y `time.sleep` mockeados, cero esperas reales |
-| `test_robots_check_target.py` | `base_script._robots_check_target` | Mapeo de URL a comprobar contra robots.txt, una por cada una de las 6 plataformas |
-| `test_dispatcher.py` | `base_script.get_robots_rules`, `query_store`, `run_all_stores` | Caché de robots.txt (TTL), circuit breaker (apertura/cierre/exclusiones), backoff persistido entre ejecuciones (A.3) — `store_state` sustituida por un dict en memoria para aislar la lógica del dispatcher de Postgres |
+| `test_classify_product.py` | `classify.classify_product`, `_detect_language` | Tabla de clasificación completa, la regresión de `" en "` como preposición española, el límite real de la regex de `main_set` (`OP-99` vs `OP-100`), y las 5 ramas de idioma (EN/JP/ES/KR + fallback a `variant_title`) |
+| `test_parse_price.py` | `classify.parse_price_text`, `parse_price_minor_unit` | Formato español/anglosajón, símbolo antes/después, tipos numéricos directos, entradas vacías/inválidas sin excepción |
+| `test_store_config.py` | `domain.StoreConfig.__post_init__` | Validación de configuración por plataforma — la corrección estructural del bug real de Arte9/ZIAL (WooCommerce sin scoping) |
+| `test_request_with_retries.py` | `http_client.request_with_retries` y compañía | Reintentos (200/500/timeout/404/304), `Retry-After` (segundos, fecha HTTP, exceso), reto anti-bot de cookie JS, fallback SSL — HTTP y `time.sleep` mockeados, cero esperas reales |
+| `test_robots_check_target.py` | `dispatcher._robots_check_target` | Mapeo de URL a comprobar contra robots.txt, una por cada una de las 6 plataformas |
+| `test_dispatcher.py` | `dispatcher.get_robots_rules`, `query_store`, `run_all_stores` | Caché de robots.txt (TTL), circuit breaker (apertura/cierre/exclusiones), backoff persistido entre ejecuciones (A.3) — `store_state` sustituida por un dict en memoria para aislar la lógica del dispatcher de Postgres |
 | `test_scraper_shopify.py` | `scrapers/shopify.py` | Paginación, variantes con stock mixto, `refresh_product` (E.2) |
 | `test_scraper_woocommerce.py` | `scrapers/woocommerce.py` | Scoping AND (no OR) de categoría+nombre, fallback API→HTML, paginación de la Store API, `_clean_leaked_markup`/`_extract_price` (casos reales de Arte9), `refresh_product` |
 | `test_scraper_prestashop.py` | `scrapers/prestashop.py` | Paginación, detección de página repetida, límite duro de 50 páginas, microdata schema.org en la ficha individual |

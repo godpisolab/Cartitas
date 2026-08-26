@@ -25,7 +25,10 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from datetime import date
 
-from base_script import Product, SCRAPER_CLASSES, StoreConfig, build_session, request_with_retries
+import persistence
+from domain import Product, StoreConfig
+from http_client import build_session, request_with_retries
+from scrapers import SCRAPER_CLASSES
 
 _SITEMAP_NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
 
@@ -90,10 +93,7 @@ def _fetch_sitemap_urls(session, sitemap_url: str) -> list[str]:
 def poll_sitemaps(conn, stores: list[StoreConfig]) -> dict:
     """Para cada tienda con `sitemap_url` en BBDD: descubre URLs nuevas y
     las extrae puntualmente, guardándolas en store_product igual que
-    cualquier alta (vía persistence._save_one_store, importado en diferido
-    para evitar el ciclo de imports persistence<->sitemap_poller)."""
-    import persistence  # import diferido -- ver docstring
-
+    cualquier alta (vía persistence._save_one_store)."""
     config_by_domain = {s.domain: s for s in stores}
 
     with conn.cursor() as cur:

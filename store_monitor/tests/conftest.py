@@ -47,8 +47,8 @@ def postgres_available():
 @pytest.fixture
 def db_conn(postgres_available, monkeypatch):
     """Conexión a cartitas_test, con persistence.DATABASE_URL (y por tanto
-    store_state.py, que importa persistence en diferido) apuntando ahí
-    durante el test."""
+    store_state.py, que importa persistence a nivel de módulo) apuntando
+    ahí durante el test."""
     import persistence
     monkeypatch.setattr(persistence, "DATABASE_URL", TEST_DATABASE_URL)
 

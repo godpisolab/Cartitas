@@ -5,16 +5,9 @@ from __future__ import annotations
 import time
 from typing import Optional
 
-from base_script import (
-    Product,
-    RefreshedVariant,
-    RefreshOutcome,
-    StoreConfig,
-    build_session,
-    conditional_headers,
-    parse_price_text,
-    request_with_retries,
-)
+from classify import parse_price_text
+from domain import Product, RefreshedVariant, RefreshOutcome, StoreConfig
+from http_client import build_session, conditional_headers, request_with_retries
 from scrapers.base import BaseStoreScraper
 
 

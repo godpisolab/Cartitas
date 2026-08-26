@@ -16,7 +16,7 @@ YA estaba construido cuando se escribió el plan (bloque C, hecho el
 from __future__ import annotations
 
 import matcher
-from base_script import Classification
+from domain import Classification
 
 
 def make_classification(product_type="BOOSTER_BOX", set_code="OP11", language="EN", main_set="OP11"):
@@ -160,7 +160,7 @@ class TestExclusionNotApplicable:
 class TestRunMatchingEndToEnd:
     def _seed_store_product(self, conn, raw_name, store_label="Tienda"):
         import persistence
-        from base_script import Platform, Product, StoreConfig
+        from domain import Platform, Product, StoreConfig
         cfg = StoreConfig(store_label, f"https://{store_label.lower()}.example", Platform.SHOPIFY,
                            shopify_collection="x")
         store_ids = persistence.sync_stores(conn, [cfg])
@@ -230,7 +230,7 @@ class TestRunMatchingEndToEnd:
 class TestFindMissingCanonicalCandidates:
     def _seed_store_product(self, conn, raw_name, store_label):
         import persistence
-        from base_script import Platform, Product, StoreConfig
+        from domain import Platform, Product, StoreConfig
         cfg = StoreConfig(store_label, f"https://{store_label.lower()}.example", Platform.SHOPIFY,
                            shopify_collection="x")
         store_ids = persistence.sync_stores(conn, [cfg])

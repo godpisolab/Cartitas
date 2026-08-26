@@ -34,7 +34,7 @@ VAPID_CLAIMS_SUB = os.environ.get("VAPID_CLAIMS_SUB", "mailto:dev@example.com")
 
 
 @dataclass
-class NotifyResult             :
+class NotifyResult:
     sent: int
     dead_subscriptions_removed: int
 
