@@ -1,0 +1,85 @@
+classDiagram
+  class Game {
+    +int id
+    +string name
+    +string slug
+  }
+  class Category {
+    +int id
+    +int parent_category_id
+    +string name
+    +string slug
+  }
+  class Product {
+    +int id
+    +int game_id
+    +int category_id
+    +string set_code
+    +string language
+    +string name_canonical
+    +string image_url
+    +bool is_hot
+    +date hot_until
+  }
+  class Store {
+    +int id
+    +string name
+    +string website_url
+    +string sitemap_url
+    +string platform
+    +bool active
+    +bool has_structured_api
+    +string api_endpoint
+    +int crawl_delay_seconds
+    +datetime backoff_until
+    +datetime last_scraped_at
+    +datetime last_sitemap_checked_at
+  }
+  class StoreProduct {
+    +int id
+    +int store_id
+    +int product_id
+    +int suggested_product_id
+    +float match_confidence
+    +string match_status
+    +string store_url
+    +string raw_name
+    +decimal current_price
+    +string stock_status
+    +string last_etag
+    +string last_modified_header
+    +datetime last_checked_at
+  }
+  class PriceHistory {
+    +int id
+    +int store_product_id
+    +decimal price
+    +string stock_status
+    +date scraped_date
+  }
+  class RestockSubscription {
+    +int id
+    +int product_id
+    +int store_id
+    +string push_endpoint
+    +string push_keys_json
+    +datetime created_at
+  }
+  class RestockEvent {
+    +int id
+    +int store_product_id
+    +int product_id
+    +datetime detected_at
+    +int subscribers_notified
+  }
+
+  Game "1" --> "*" Product : agrupa
+  Category "1" --> "*" Product : clasifica
+  Category "1" --> "0..*" Category : subcategoria_de
+  Product "0..1" --> "*" StoreProduct : confirmado_como
+  Product "0..1" ..> "*" StoreProduct : sugerido_como
+  Store "1" --> "*" StoreProduct : vende
+  StoreProduct "1" --> "*" PriceHistory : snapshot_diario
+  Product "1" --> "*" RestockSubscription : sigue
+  Store "0..1" --> "*" RestockSubscription : filtra_opcionalmente
+  StoreProduct "1" --> "*" RestockEvent : dispara

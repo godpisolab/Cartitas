@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+
+# Estado runtime del scraper -- no es código, se regenera solo (ver store_state.py)
+store_monitor/store_state.json
+store_monitor/multi_tienda_one_piece.csv
+store_monitor/tiendas_fallidas.csv
