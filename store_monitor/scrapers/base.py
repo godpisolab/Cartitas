@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from base_script import DEFAULT_DELAY, Product, StoreConfig, StoreLogger, classify_product
+from base_script import DEFAULT_DELAY, Product, RefreshOutcome, StoreConfig, StoreLogger, classify_product
 
 
 class BaseStoreScraper(ABC):
@@ -26,6 +26,21 @@ class BaseStoreScraper(ABC):
         normalizados. Cada subclase decide cómo (JSON público, Store API,
         HTML, JSON-LD...) -- ver el módulo de cada plataforma en scrapers/."""
         ...
+
+    @classmethod
+    def refresh_product(cls, config: StoreConfig, store_url: str, *, store_sku: Optional[str] = None,
+                         etag: Optional[str] = None, last_modified: Optional[str] = None) -> RefreshOutcome:
+        """E.2/A.4: refresca UN producto ya conocido (no descubre nada
+        nuevo, ver limitación en modelo-datos-app-tcg.md punto 4) sin
+        recorrer la categoría entera. Método de clase (no de instancia): no
+        hace falta un StoreLogger ni un `delay` de categoría para una sola
+        petición puntual.
+
+        Por defecto "not_supported" -- cada subclase que sepa refrescar un
+        producto individual (ver scrapers/*.py) lo sobrescribe; las que no
+        (ninguna en este proyecto por ahora) se quedan con este default en
+        vez de fallar con un AttributeError."""
+        return RefreshOutcome(status="not_supported", error=f"{cls.__name__} no soporta refresco individual todavía")
 
     def _make_product(self, *, id_product, name, price, stock_status, url, sku,
                        image_url, variant_title: Optional[str] = None) -> Product:

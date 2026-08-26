@@ -72,6 +72,8 @@ CREATE TABLE store (
     api_endpoint             TEXT,
     crawl_delay_seconds      INTEGER,
     robots_checked_at        TIMESTAMPTZ,  -- última vez que se refrescó la caché de robots.txt (no confundir con last_scraped_at)
+    disallowed               BOOLEAN NOT NULL DEFAULT false,  -- robots.txt prohíbe la URL que scrapeamos (A.2, cacheado junto a robots_checked_at)
+    consecutive_failures     INTEGER NOT NULL DEFAULT 0,  -- fallos seguidos ENTRE ejecuciones (A.3) -- ver backoff_until
     backoff_until            TIMESTAMPTZ,
     last_scraped_at          TIMESTAMPTZ,
     last_sitemap_checked_at  TIMESTAMPTZ
@@ -95,7 +97,12 @@ CREATE TABLE store_product (
     last_etag             VARCHAR(255),
     last_modified_header  VARCHAR(255),
     last_checked_at       TIMESTAMPTZ,
-    UNIQUE (store_id, store_url)  -- evita duplicar el mismo listado
+    -- Incluye raw_variant (no solo store_url): varias variantes de un mismo
+    -- producto Shopify (idioma, sobre/caja...) comparten la misma store_url
+    -- con stock/precio independientes por variante (caso Pokemillon, D.5) --
+    -- sin raw_variant aquí, la segunda variante pisaría a la primera en vez
+    -- de convivir como fila propia.
+    UNIQUE (store_id, store_url, raw_variant)
 );
 
 -- El top-3 de candidatos (C.3) ya NO se guarda como sugerencia única: se calcula en caliente en el

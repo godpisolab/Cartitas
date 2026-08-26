@@ -17,7 +17,8 @@ services:
       # PRIMERA vez que crea el volumen de datos -- si cambias el esquema y
       # quieres que se reaplique desde cero, hay que borrar el volumen
       # (`docker compose down -v`), no basta con reiniciar el contenedor.
-      - ./schema-postgresql-app-tcg.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ../schema-postgresql-app-tcg.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ../seed-catalog-app-tcg.sql:/docker-entrypoint-initdb.d/02-seed-catalog.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cartitas -d cartitas"]
       interval: 5s

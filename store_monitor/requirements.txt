@@ -3,3 +3,5 @@ requests
 beautifulsoup4
 pybreaker
 psycopg2-binary
+apscheduler
+pywebpush

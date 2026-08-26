@@ -6,7 +6,18 @@ import time
 
 from bs4 import BeautifulSoup
 
-from base_script import Product, build_session, parse_price_text, request_with_retries
+from typing import Optional
+
+from base_script import (
+    Product,
+    RefreshedVariant,
+    RefreshOutcome,
+    StoreConfig,
+    build_session,
+    conditional_headers,
+    parse_price_text,
+    request_with_retries,
+)
 from scrapers.base import BaseStoreScraper
 
 MAX_LISTING_PAGES = 50  # cinturón de seguridad ante una paginación mal detectada/circular
@@ -88,6 +99,72 @@ class PrestaShopScraper(BaseStoreScraper):
             time.sleep(self.delay)
 
         return products
+
+    @classmethod
+    def refresh_product(cls, config: StoreConfig, store_url: str, *, store_sku: Optional[str] = None,
+                         etag: Optional[str] = None, last_modified: Optional[str] = None) -> RefreshOutcome:
+        """E.2: no hay API pública (igual que en scrape()), así que se
+        visita la ficha de producto y se lee la microdata schema.org que el
+        tema IQIT sí expone ahí (aunque no en el listado) -- verificado
+        contra HTML real de Distrito Zero: `[itemprop=price]` (atributo
+        `content`) y `[itemprop=availability]` (atributo `href`, URL de
+        schema.org tipo `https://schema.org/InStock`, mismo formato que ya
+        interpreta OdooScraper)."""
+        session = build_session(anti_bot=True, config=config)
+        resp = request_with_retries(session, store_url, headers=conditional_headers(etag, last_modified))
+
+        if resp is None:
+            return RefreshOutcome(status="error", error="fallo de red irrecuperable")
+        if resp.status_code == 304:
+            return RefreshOutcome(status="not_modified")
+        if resp.status_code != 200:
+            return RefreshOutcome(status="error", error=f"status {resp.status_code}")
+
+        item = cls._parse_product_detail(resp.text)
+        if item is None:
+            return RefreshOutcome(status="error", error="sin microdata de precio en la ficha de producto")
+
+        return RefreshOutcome(
+            status="modified",
+            variants=[RefreshedVariant(variant=None, price=item["price"], stock_status=item["stock_status"],
+                                        name=item["name"])],
+            etag=resp.headers.get("ETag"),
+            last_modified=resp.headers.get("Last-Modified"),
+        )
+
+    @staticmethod
+    def _parse_product_detail(html: str) -> Optional[dict]:
+        """Ficha individual del tema IQIT -- verificado contra HTML real de
+        Distrito Zero. Si `[itemprop=price]` no aparece, se asume que la
+        tienda cambió de tema (igual que _parse_page para el listado) y se
+        devuelve None en vez de arriesgar un precio inventado."""
+        soup = BeautifulSoup(html, "html.parser")
+
+        price_tag = soup.select_one("[itemprop=price]")
+        if price_tag is None:
+            return None
+        price = parse_price_text(price_tag.get("content") or price_tag.get_text(strip=True))
+
+        # OJO: [itemprop=name] existe en esta ficha pero apunta al breadcrumb
+        # ("Inicio"), no al producto -- verificado contra HTML real de
+        # Distrito Zero. El h1 sí es el título real del producto.
+        name_tag = soup.select_one("h1")
+        name = name_tag.get_text(strip=True) if name_tag else None
+
+        availability_tag = soup.select_one("[itemprop=availability]")
+        availability = (availability_tag.get("href") or availability_tag.get_text(strip=True)).lower() \
+            if availability_tag else ""
+
+        if not availability:
+            # Sin microdata de disponibilidad -- cae al mismo indicador visual
+            # que usa _parse_page para el listado (".product-available").
+            stock_status = "DISPONIBLE" if soup.select_one(".product-available") else "DESCONOCIDO"
+        elif "outofstock" in availability or "discontinued" in availability:
+            stock_status = "AGOTADO"
+        else:
+            stock_status = "DISPONIBLE"
+
+        return {"price": price, "stock_status": stock_status, "name": name}
 
     @staticmethod
     def _parse_page(html: str):

@@ -665,7 +665,12 @@ class Product:
 # ===========================================================================
 
 CLASSIFICATION_RULES = [
-    ("STARTER_DECK", ["starter deck", "mazo de inicio"]),
+    # "ultra deck" añadido tras sembrar el catálogo oficial de Bandai (ST-10
+    # "Ultra Deck: The Three Captains", ST-13 "...The Three Brothers"):
+    # mismo tipo de producto que un Starter Deck (mazo único en caja), solo
+    # cambia el nombre de línea -- no hay categoría "Ultra Deck" separada en
+    # D.2, y no tendría sentido crear una por dos productos.
+    ("STARTER_DECK", ["starter deck", "ultra deck", "mazo de inicio"]),
     ("DOUBLE_PACK", ["double pack"]),
     ("MYSTERY_PACK", ["mystery pack", "mystery box"]),
     ("PREMIUM_COLLECTION", ["premium card collection", "the best vol", "the best "]),
@@ -835,7 +840,7 @@ def _solve_js_cookie_challenge(session: requests.Session, response: requests.Res
 
 
 def _get_with_ssl_fallback(session: requests.Session, url: str, params: Optional[dict],
-                            timeout: int) -> requests.Response:
+                            timeout: int, headers: Optional[dict] = None) -> requests.Response:
     """La huella TLS que usa cloudscraper (para parecer un Chrome real) a
     veces choca con la configuración TLS de un servidor concreto -- no es lo
     mismo que un bloqueo anti-bot deliberado. Verificado en Arte9
@@ -845,12 +850,12 @@ def _get_with_ssl_fallback(session: requests.Session, url: str, params: Optional
     Si pasa esto, se prueba una vez con una sesión de requests normal
     (heredando cookies/headers) antes de dar la petición por fallida."""
     try:
-        return session.get(url, params=params, timeout=timeout)
+        return session.get(url, params=params, timeout=timeout, headers=headers)
     except requests.exceptions.SSLError:
         plain_session = requests.Session()
         plain_session.headers.update(dict(session.headers))
         plain_session.cookies.update(session.cookies)
-        return plain_session.get(url, params=params, timeout=timeout)
+        return plain_session.get(url, params=params, timeout=timeout, headers=headers)
 
 
 def _parse_retry_after(header_value: Optional[str]) -> Optional[float]:
@@ -883,11 +888,14 @@ def request_with_retries(
     timeout: int = DEFAULT_TIMEOUT,
     max_retries: int = MAX_RETRIES,
     heartbeat: Optional[Callable[[], None]] = None,
+    headers: Optional[dict] = None,
 ) -> Optional[requests.Response]:
     """GET con reintentos y backoff exponencial + jitter.
 
     Reintenta en: errores de red/timeout, 429 (rate limit) y 5xx.
-    NO reintenta en: 404 u otros 4xx de cliente (reintentar no cambiaría el resultado).
+    NO reintenta en: 404 u otros 4xx de cliente (reintentar no cambiaría el resultado) --
+    esto incluye el 304 Not Modified de las peticiones condicionales (A.4, ver
+    conditional_headers()), que no es un error, es la respuesta esperada.
     Devuelve None solo si TODOS los intentos fallan por error de red (sin respuesta
     HTTP alguna) -- en cualquier otro caso devuelve la Response tal cual para que el
     llamador decida qué hacer con el status_code.
@@ -898,7 +906,7 @@ def request_with_retries(
         if heartbeat:
             heartbeat()
         try:
-            response = _get_with_ssl_fallback(session, url, params, timeout)
+            response = _get_with_ssl_fallback(session, url, params, timeout, headers)
         except requests.RequestException:
             if attempt < max_retries:
                 time.sleep(_backoff_delay(attempt))
@@ -930,6 +938,70 @@ def request_with_retries(
         return response  # 2xx, 3xx, o 4xx no reintentable
 
     return response
+
+
+# ===========================================================================
+# Refresco individual de producto (E.2) + peticiones condicionales (A.4)
+# ===========================================================================
+#
+# A diferencia del barrido completo por categoría (que siempre quiere el
+# estado actual de TODO, sin condicionar -- ver A.4 del documento de
+# cambios), el refresco de un producto caliente sí se beneficia de
+# condicionar: si no ha cambiado desde la última vez, el servidor responde
+# 304 sin cuerpo, mucho más barato que volver a parsear la página entera.
+
+def conditional_headers(etag: Optional[str], last_modified: Optional[str]) -> dict:
+    """Cabeceras If-None-Match / If-Modified-Since a partir del ETag/
+    Last-Modified guardados en store_product de la vez anterior. Vacío si no
+    hay nada guardado todavía (primera vez que se refresca este producto)."""
+    headers = {}
+    if etag:
+        headers["If-None-Match"] = etag
+    if last_modified:
+        headers["If-Modified-Since"] = last_modified
+    return headers
+
+
+@dataclass
+class RefreshedVariant:
+    """Precio/stock recién leídos de UNA variante de un producto. `variant`
+    debe coincidir exactamente con el `raw_variant` ya guardado en
+    store_product para que el llamador sepa qué fila actualizar -- en
+    plataformas sin variantes (todas salvo Shopify) siempre es None.
+
+    `name` es el nombre crudo tal como lo devuelve la plataforma -- todos
+    los parsers ya lo extraen de todas formas (lo necesitan para construir
+    el Product del barrido normal), así que llevarlo aquí es gratis. El
+    refresco de calientes (E.2) lo ignora (el producto ya se conoce, reusa
+    el raw_name guardado), pero el polling de sitemap (E.1) lo necesita:
+    ahí el producto es nuevo, no hay raw_name previo del que partir."""
+    variant: Optional[str]
+    price: Optional[float]
+    stock_status: str
+    name: Optional[str] = None
+
+
+@dataclass
+class RefreshOutcome:
+    """Resultado de BaseStoreScraper.refresh_product() (ver scrapers/base.py).
+
+    status:
+        "modified"      -- cambió (o es la primera vez que se comprueba):
+                           `variants` trae el precio/stock actual de cada
+                           variante conocida de esa URL.
+        "not_modified"  -- 304: no ha cambiado desde la vez anterior, no hay
+                           nada que reprocesar (solo se actualiza
+                           last_checked_at, barato -- ver A.4).
+        "error"         -- fallo de red o de parseo; no se toca la BBDD,
+                           se reintentará en el siguiente ciclo.
+        "not_supported" -- esta plataforma/producto no tiene forma fiable de
+                           refrescarse individualmente (ver limitaciones por
+                           plataforma en cada scrapers/*.py)."""
+    status: str
+    variants: list[RefreshedVariant] = field(default_factory=list)
+    etag: Optional[str] = None
+    last_modified: Optional[str] = None
+    error: Optional[str] = None
 
 
 # ===========================================================================
@@ -1453,12 +1525,46 @@ def main() -> None:
         print(f"Guardado en {OUTPUT_CSV}")
         print_summary(all_products)
 
-        import persistence
+    # Persistencia SIEMPRE se intenta, incluso con all_products vacío (todas
+    # las tiendas fallaron este ciclo): persist_scrape_results() sincroniza
+    # STORES -> tabla `store` (B.1) como primer paso, antes de tocar ningún
+    # producto -- si esto se dejara dentro del `if all_products:`, una
+    # ejecución en la que fallan todas las tiendas dejaría sin sincronizar
+    # una tienda recién añadida a STORES ese ciclo (aunque el fallo no
+    # tuviera nada que ver con ella).
+    import matcher
+    import persistence
+    import restock_notifier
+    try:
+        restock_event_ids = persistence.persist_scrape_results(all_products, STORES)
+    except Exception as e:
+        print(f"ERROR: no se pudo persistir en Postgres ({type(e).__name__}: {e}) "
+              f"-- el CSV ya se guardó igualmente")
+    else:
+        # E.3: disparar notificaciones de los restocks detectados en ESTE
+        # ciclo -- antes de matchear, para no depender de que el matcher
+        # (que puede tardar/fallar) haya corrido ya.
         try:
-            persistence.persist_scrape_results(all_products, STORES)
+            conn = persistence.get_connection()
+            try:
+                restock_notifier.notify_for_restock_events(conn, restock_event_ids)
+            finally:
+                conn.close()
         except Exception as e:
-            print(f"ERROR: no se pudo persistir en Postgres ({type(e).__name__}: {e}) "
-                  f"-- el CSV ya se guardó igualmente")
+            print(f"ERROR: no se pudieron enviar notificaciones de restock ({type(e).__name__}: {e})")
+
+        # Bloque C: solo tiene sentido re-matchear si la persistencia de
+        # este ciclo salió bien -- si falló, los store_product de hoy ni
+        # siquiera están actualizados en la BBDD todavía.
+        try:
+            conn = persistence.get_connection()
+            try:
+                counts = matcher.run_matching(conn)
+            finally:
+                conn.close()
+            print(f"[matching] {counts}")
+        except Exception as e:
+            print(f"ERROR: no se pudo ejecutar el matcher ({type(e).__name__}: {e})")
 
 
 if __name__ == "__main__":

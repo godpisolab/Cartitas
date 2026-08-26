@@ -8,7 +8,16 @@ from typing import Optional
 
 from bs4 import BeautifulSoup
 
-from base_script import Product, build_session, parse_price_text, request_with_retries
+from base_script import (
+    Product,
+    RefreshedVariant,
+    RefreshOutcome,
+    StoreConfig,
+    build_session,
+    conditional_headers,
+    parse_price_text,
+    request_with_retries,
+)
 from scrapers.base import BaseStoreScraper
 
 MAX_LISTING_PAGES = 50  # cinturón de seguridad ante una paginación mal detectada/circular
@@ -170,6 +179,35 @@ class OdooScraper(BaseStoreScraper):
             ".pagination li.active + li a"
         ) is not None
         return urls, has_next
+
+    @classmethod
+    def refresh_product(cls, config: StoreConfig, store_url: str, *, store_sku: Optional[str] = None,
+                         etag: Optional[str] = None, last_modified: Optional[str] = None) -> RefreshOutcome:
+        """E.2: OdooScraper YA visita la ficha individual como parte de su
+        barrido normal (ver docstring de la clase) -- el refresco solo
+        repite esa misma petición puntual y reutiliza _parse_product_jsonld
+        tal cual, sin duplicar la lógica de extracción."""
+        session = build_session(anti_bot=True, config=config)
+        resp = request_with_retries(session, store_url, headers=conditional_headers(etag, last_modified))
+
+        if resp is None:
+            return RefreshOutcome(status="error", error="fallo de red irrecuperable")
+        if resp.status_code == 304:
+            return RefreshOutcome(status="not_modified")
+        if resp.status_code != 200:
+            return RefreshOutcome(status="error", error=f"status {resp.status_code}")
+
+        item = cls._parse_product_jsonld(resp.text)
+        if item is None:
+            return RefreshOutcome(status="error", error="sin JSON-LD de tipo Product en la ficha")
+
+        return RefreshOutcome(
+            status="modified",
+            variants=[RefreshedVariant(variant=None, price=item["price"], stock_status=item["stock_status"],
+                                        name=item["name"])],
+            etag=resp.headers.get("ETag"),
+            last_modified=resp.headers.get("Last-Modified"),
+        )
 
     # -- Fase 2: página de producto -> JSON-LD (fuente de verdad) --------
 

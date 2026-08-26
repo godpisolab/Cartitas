@@ -14,6 +14,10 @@ Scraper unificado de precios y stock de **One Piece Card Game** en tiendas onlin
 - [Consulta puntual de una tienda](#consulta-puntual-de-una-tienda)
 - [Salida](#salida)
 - [Persistencia en PostgreSQL](#persistencia-en-postgresql)
+- [Matching a producto canónico](#matching-a-producto-canónico)
+- [Refresco individual de producto (E.2) y polling de sitemap (E.1)](#refresco-individual-de-producto-e2-y-polling-de-sitemap-e1)
+- [Notificaciones de restock (E.3)](#notificaciones-de-restock-e3)
+- [Orquestación (scheduler.py, E.1)](#orquestación-schedulerpy-e1)
 - [Limitaciones conocidas](#limitaciones-conocidas)
 - [Estructura de archivos](#estructura-de-archivos)
 
@@ -28,7 +32,7 @@ Dependencias: `requests` (HTTP), `cloudscraper` (bypass de Cloudflare para Prest
 Para levantar Postgres en local (desarrollo):
 
 ```bash
-docker compose up -d   # desde la raíz del repo -- aplica schema-postgresql-app-tcg.sql automáticamente
+docker compose -f docker_composes/docker-compose.yml up -d   # desde la raíz del repo -- aplica schema-postgresql-app-tcg.sql automáticamente
 ```
 
 ## Uso
@@ -191,10 +195,10 @@ Si una tienda WooCommerce no tiene categoría estándar fiable, usa `woocommerce
 Ver `cambios-necesarios-scraper.md` (bloque A) para la discusión completa de estas decisiones.
 
 - **User-Agent identificable** (`IDENTIFIABLE_USER_AGENT`): el scraper se identifica como `CartitasPriceWatch/1.0 (+<URL de contacto>)` en vez de imitar un navegador. La URL de contacto (`BOT_CONTACT_URL`) es un placeholder pendiente de sustituir por el dominio real. Si una tienda concreta bloquea este UA, se marca esa `StoreConfig` con `ua_exception=True` (usa entonces `BROWSER_LIKE_USER_AGENT`) — es una excepción documentada por tienda, no un revert global.
-- **robots.txt / Crawl-delay** (`get_robots_rules`, `scrape_store`): antes de scrapear se comprueba (y cachea una semana, en `store_state.json`) el robots.txt de la tienda contra la URL de listado que se va a pedir. Si el `Disallow` la cubre, la tienda se excluye ese ciclo con motivo explícito en logs — no se ignora robots.txt para scrapear igualmente. Si declara `Crawl-delay`, se usa como mínimo entre peticiones a esa tienda (nunca por debajo de `DEFAULT_DELAY`).
-- **Backoff persistido entre ejecuciones** (`store_state.py`, `_record_backoff_outcome`): a diferencia del circuit breaker de `query_store()` (en memoria, solo dentro del proceso), este cuenta fallos seguidos de `run_all_stores()` en **ejecuciones distintas** (persistido en `store_state.json`). Al tercer fallo seguido, la tienda queda en backoff (`STORE_BACKOFF_DEFAULT_SECONDS`, 30 min) y el próximo `run_all_stores()` la salta sin intentarla hasta que pase. Una exclusión por robots.txt no cuenta como fallo.
+- **robots.txt / Crawl-delay** (`get_robots_rules`, `scrape_store`): antes de scrapear se comprueba (y cachea una semana, en `store.robots_checked_at`/`crawl_delay_seconds`/`disallowed`) el robots.txt de la tienda contra la URL de listado que se va a pedir. Si el `Disallow` la cubre, la tienda se excluye ese ciclo con motivo explícito en logs — no se ignora robots.txt para scrapear igualmente. Si declara `Crawl-delay`, se usa como mínimo entre peticiones a esa tienda (nunca por debajo de `DEFAULT_DELAY`).
+- **Backoff persistido entre ejecuciones** (`store_state.py`, `_record_backoff_outcome`): a diferencia del circuit breaker de `query_store()` (en memoria, solo dentro del proceso), este cuenta fallos seguidos de `run_all_stores()` en **ejecuciones distintas** (`store.consecutive_failures`/`backoff_until`). Al tercer fallo seguido, la tienda queda en backoff (`STORE_BACKOFF_DEFAULT_SECONDS`, 30 min) y el próximo `run_all_stores()` la salta sin intentarla hasta que pase. Una exclusión por robots.txt no cuenta como fallo.
 
-`store_state.json` es estado runtime local (no se versiona, ver `.gitignore`) — se borra sin problema, simplemente se vuelve a poblar en la siguiente ejecución. Es la pieza que, en el bloque B de `cambios-necesarios-scraper.md`, se sustituirá por lecturas/escrituras directas a la tabla `store` de Postgres.
+`store_state.py` (migrado a Postgres 2026-08-26, antes usaba un JSON local) expone la misma interfaz `get_state()`/`update_state()` por dominio de siempre, ahora contra las columnas de `store` en vez de un fichero. Degrada con gracia si Postgres no está disponible: el scraper sigue funcionando igual (sin la caché de robots.txt/backoff ese ciclo, con AVISO en logs), en vez de fallar. Limitación real: en una BBDD recién creada, la fila de `store` de una tienda no existe hasta que corre `sync_stores()` al final del primer ciclo completo — el primer chequeo de robots.txt de una tienda nueva no queda cacheado esa primera vez.
 
 ## Consulta puntual de una tienda
 
@@ -230,11 +234,89 @@ export DATABASE_URL="postgresql://cartitas:cartitas@localhost:5433/cartitas"
 
 Dos escrituras, cada ejecución de `main()`:
 
+**Bug real corregido (2026-08-26)**: el `UNIQUE` de `store_product` era solo `(store_id, store_url)` — varias variantes de un mismo producto Shopify (idioma, sobre/caja...) comparten `store_url`, así que la segunda variante pisaba a la primera en vez de convivir como fila propia (verificado en Pokemillon: 130 de 430 productos, un 30%, colapsaban). Ahora es `(store_id, store_url, raw_variant)` — si aplicas el esquema sobre una BBDD ya creada con el `UNIQUE` viejo, hace falta el `ALTER TABLE` (ver `schema-postgresql-app-tcg.sql`, no se migra solo).
+
 1. **`sync_stores()`** — `STORES` (código) → tabla `store`, `UPSERT` por `website_url`. Solo toca los campos ESTÁTICOS que existen en `StoreConfig` (`name`, `platform`); los dinámicos (`crawl_delay_seconds`, `backoff_until`, `last_scraped_at`, `robots_checked_at`) viven solo en la BBDD y esta sincronización nunca los pisa.
 2. **`persist_scrape_results()`** — los `Product` ya scrapeados → `store_product` + `price_history` + `restock_event`, en **una transacción por tienda** (no por producto, ni una única transacción gigante para las 56): un lote corrupto de una tienda hace `ROLLBACK` solo, sin perder las demás. Cada lote:
-   - Lee el `stock_status` **anterior** de `store_product` antes de sobrescribirlo, para detectar la transición `agotado → disponible` (restock). Un `store_url` sin fila previa nunca cuenta como restock (alta nueva, no restock), y tampoco cuenta si no hay `product_id` confirmado todavía (bloque C, matching, aún no implementado).
+   - Lee el `stock_status` **anterior** de `store_product` antes de sobrescribirlo, para detectar la transición `agotado → disponible` (restock). Un `store_url` sin fila previa nunca cuenta como restock (alta nueva, no restock), y tampoco cuenta si no hay `product_id` confirmado todavía (ver matching, abajo).
    - Trunca defensivamente `raw_name`/`raw_variant`/`store_sku` a los límites del esquema si el HTML de una tienda concreta cuela texto anómalo (visto en Arte9, mismo tema Madara de la limitación de más abajo) — con aviso en logs, en vez de que ese único producto tire abajo la transacción de toda la tienda.
    - Normaliza `stock_status` a los valores exactos del enum (minúscula) — el scraper interno sigue en mayúsculas, la traducción vive solo aquí.
+
+## Matching a producto canónico
+
+Tras persistir, `main()` ejecuta `matcher.run_matching()` (bloque C de `cambios-necesarios-scraper.md`): vincula cada `store_product.raw_name` a un `product` canónico, o decide que no se puede vincular todavía. **No es aprendizaje automático** — `classify_product()` es determinista (reglas fijas de texto, las mismas del scraper) y la similitud usa `pg_trgm` sobre `name_canonical`. Si un patrón de error se repite, la corrección es editar `CLASSIFICATION_RULES` a mano, no reentrenar nada.
+
+**Requisito previo**: la tabla `category` tiene que estar sembrada con los 13 tipos reales (D.2) antes de poder matchear nada:
+
+```bash
+docker exec -i cartitas-postgres psql -U cartitas -d cartitas < seed-catalog-app-tcg.sql
+```
+
+(se aplica automáticamente en un contenedor nuevo, vía `docker-compose.yml` — solo hace falta a mano si el volumen ya existía de antes).
+
+Con `category`/`game` sembrados, `seed_official_catalog.py` puebla `product` con el catálogo oficial de Bandai (`data/one_piece_tcg_products.json`), reutilizando `classify_product()` para derivar `main_set`/`set_code`/`language` igual que se haría de un `raw_name` real. Idempotente (se puede re-ejecutar sin duplicar):
+
+```bash
+python3 seed_official_catalog.py
+```
+
+Cada lanzamiento tipo booster se siembra dos veces (Booster Box + Booster Pack) porque las tiendas los venden como SKUs distintos con precios muy distintos. Los productos sin categoría en la taxonomía de 13 tipos (fundas, binders, cajas de almacenaje sueltas, sets de aniversario...) se omiten y se listan al final de la ejecución.
+
+Umbrales (aprobados 2026-08-26 como valores de partida, a calibrar con datos reales):
+
+| Condición | Resultado |
+|---|---|
+| `main_set` + tipo + idioma exactos, y `similarity > 0.6` | `confirmed` (`product_id` se rellena) |
+| `main_set` + tipo coinciden, `similarity` en `[0.35, 0.6)` (o idioma no coincide/no detectado) | `needs_review` |
+| `main_set` NO coincide (aunque el tipo sí), o `similarity < 0.35` | `unmatched` |
+| tipo `LOTE_CARTAS` u `OTROS` | `not_applicable` (nunca entra en el pipeline — ver `NOT_APPLICABLE_PRODUCT_TYPES`) |
+
+`run_matching()` reevalúa TODO lo que no esté ya `confirmed` en cada pasada (un `confirmed` es una decisión ya tomada, no se revierte sola). El top-3 de candidatos para el panel de revisión (aún no construido) **no se guarda** — se calcula en caliente vía `ORDER BY similarity(...) DESC LIMIT 3`, para no arrastrar una sugerencia obsoleta en cuanto se siembra un producto canónico nuevo más parecido.
+
+`matcher.find_missing_canonical_candidates()` agrupa lo no confirmado por `(tipo, main_set, idioma)` y reporta combinaciones que varias tiendas distintas venden pero que no tienen ningún candidato en el catálogo — pensado como la señal que alimentaría una futura sugerencia de alta en el panel de revisión, no crea nada automáticamente.
+
+**Limitación real encontrada probando esto**: Arte9 trunca los nombres en la vista de categoría (`"... . . ."`) antes de llegar al código de set al final del título real — `classify_product()` casi nunca puede extraer `main_set` de esos nombres, así que todo lo que no cae en `not_applicable` queda `unmatched` (correcto: mejor no adivinar que confirmar mal). Solo se resolvería visitando la ficha individual de cada producto, fuera del alcance de este bloque.
+
+## Refresco individual de producto (E.2) y polling de sitemap (E.1)
+
+Además del barrido completo por categoría, cada scraper implementa `refresh_product(config, store_url, *, store_sku=None, etag=None, last_modified=None) -> RefreshOutcome` (método de clase, sin necesitar categoría/logger/delay) para consultar UN producto ya conocido sin recorrer la tienda entera. Reutiliza cabeceras condicionales (A.4: `If-None-Match`/`If-Modified-Since`) cuando el servidor las soporta — si no cambió, `status="not_modified"` (304) y no hay nada que reprocesar.
+
+Verificado contra tiendas reales, plataforma por plataforma:
+
+| Plataforma | Cómo refresca | Limitación real encontrada |
+|---|---|---|
+| Shopify | `{store_url}.json` | Ninguna — ETag real confirmado (304 funciona) |
+| WooCommerce | Store API `/wp-json/wc/store/v1/products/{id}` (necesita `store_sku`, D.6) | Sin `store_sku` (productos del fallback HTML) → `not_supported`. La Store API probada no devuelve ETag/Last-Modified — degrada con gracia (A.4), sin el ahorro del 304 |
+| PrestaShop | Microdata `[itemprop=price]`/`[itemprop=availability]` de la ficha (tema IQIT) | `[itemprop=name]` apunta al breadcrumb, no al producto — se usa `h1` en su lugar |
+| OpenCart | Selector `.price` de la ficha | **Sin señal de stock fiable** — se probó a reusar las palabras clave del listado sobre el texto completo de la ficha y dio un falso positivo real ("opciones disponibles" del selector de variante). Stock siempre `DESCONOCIDO` aquí, solo se refresca precio |
+| Odoo / JSON-LD genérico | Reutiliza el parser JSON-LD que YA usa el barrido normal (ambos visitan la ficha individual de por sí) | Ninguna nueva |
+
+`persistence.refresh_hot_products(conn, stores)` es el orquestador de E.2: consulta `store_product` cuyo `product.is_hot=true` (y no caducado), agrupa por URL (Shopify puede tener varias filas/variantes para la misma URL), llama a `refresh_product()`, y reutiliza `_save_one_store()` para no duplicar la lógica de restock/price_history — reconstruye `Product` "sintéticos" con el `raw_name` YA CONOCIDO (un refresco no redescubre el producto, solo comprueba si cambió).
+
+`sitemap_poller.poll_sitemaps(conn, stores)` es E.1: compara las URLs de `store.sitemap_url` (poblado a mano por tienda, `UPDATE store SET sitemap_url = '...'` — no viene de `STORES`/código) contra las ya conocidas, y extrae puntualmente las nuevas vía `refresh_product()`. **Hallazgo real probándolo en Cardzone**: el sitemap cubre TODA la tienda (~4100 URLs de varios TCG), no solo la categoría scrapeada — hizo falta filtrar por sub-sitemap "product" + prefijo de ruta conocido + palabra clave del juego en el slug, más un tope (`MAX_NEW_URLS_PER_POLL=30`) por seguridad. Aun así, encontró **10 productos reales** que el barrido por categoría nunca ve (viven en otra colección de Shopify: cajas con "embalaje dañado").
+
+## Notificaciones de restock (E.3)
+
+`restock_notifier.notify_for_restock_events(conn, restock_event_ids)` se llama justo después de persistir (barrido diario y refresco de calientes): busca `restock_subscription` activas para cada `restock_event` recién creado (`product_id` + tienda concreta o cualquiera), envía un Web Push firmado con VAPID (`pywebpush`), y **borra automáticamente** las suscripciones que devuelven `410 Gone` (estándar Web Push: el usuario revocó el permiso o desinstaló).
+
+Requiere `VAPID_PRIVATE_KEY_PATH` (ruta a un `.pem`) y `VAPID_CLAIMS_SUB` como variables de entorno — sin ellas, no envía nada con un AVISO en vez de fallar (normal mientras no haya un frontend real registrando suscripciones). Claves de desarrollo:
+
+```bash
+python3 -c "from py_vapid import Vapid; v = Vapid(); v.generate_keys(); open('vapid_private.pem','wb').write(v.private_pem())"
+export VAPID_PRIVATE_KEY_PATH=vapid_private.pem
+```
+
+Verificado con un servidor HTTP local simulando ambas respuestas de un servicio push real (201 = enviado, 410 = suscripción muerta) — no hay forma de probar contra un servicio push real sin un endpoint de navegador de verdad.
+
+## Orquestación (`scheduler.py`, E.1)
+
+Proceso persistente con `APScheduler` (decidido 2026-08-26 frente a cron del sistema, ver `cambios-necesarios-scraper.md`) que sustituye lanzar `python base_script.py` a mano:
+
+```bash
+python3 scheduler.py
+```
+
+Tres jobs: `barrido_diario` (cron, 1x/día, reutiliza `main()` tal cual), `refresco_calientes` (cada `HOT_REFRESH_INTERVAL_HOURS`, por defecto 3h) y `polling_sitemap` (cada `SITEMAP_POLL_INTERVAL_HOURS`, por defecto 1.5h). Pensado para correr dentro de un proceso supervisado (systemd, Docker con `restart: always`) — se queda en primer plano y no se recupera solo de un crash del propio proceso.
 
 ## Limitaciones conocidas
 
@@ -252,8 +334,13 @@ store_monitor/
 ├── README.md
 ├── requirements.txt
 ├── base_script.py       -- configuración, modelo de datos, HTTP, dispatcher, main()
-├── store_state.py       -- estado runtime por tienda entre ejecuciones (robots.txt, backoff) -- ver .gitignore
+├── store_state.py       -- estado runtime por tienda entre ejecuciones (robots.txt, backoff) -- columnas de `store`
 ├── persistence.py       -- escritura a PostgreSQL (store/store_product/price_history/restock_event)
+├── matcher.py           -- matching store_product -> product canónico (pg_trgm + reglas)
+├── seed_official_catalog.py -- siembra product desde data/one_piece_tcg_products.json
+├── sitemap_poller.py    -- E.1: descubrimiento temprano vía sitemap.xml
+├── restock_notifier.py  -- E.3: Web Push + VAPID al detectar restock
+├── scheduler.py         -- E.1: orquestador persistente (APScheduler)
 └── scrapers/
     ├── __init__.py
     ├── base.py

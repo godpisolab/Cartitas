@@ -1,40 +1,36 @@
-"""Persistencia local (JSON) del estado dinámico por tienda entre ejecuciones.
+"""Estado dinámico por tienda entre ejecuciones -- columnas de la tabla
+`store` en Postgres (crawl_delay_seconds, robots_checked_at, disallowed,
+consecutive_failures, backoff_until), no un JSON local.
 
-Hoy `STORES` (base_script.py) vive solo en memoria: cada `python
-base_script.py` arranca de cero, sin recordar nada del ciclo anterior. Esto
-es un problema concreto para dos estándares de scraping respetuoso (ver
-cambios-necesarios-scraper.md, bloque A):
+Migrado desde store_state.json (2026-08-26, tras revisión de la capa de
+persistencia): unifica todo el estado runtime del scraper en una sola
+fuente de verdad consultable por SQL, en vez de tenerlo repartido entre un
+fichero local y la BBDD. Ver git history de este archivo para la versión
+anterior basada en JSON, si hace falta compararlas.
 
-- robots.txt/Crawl-delay (A.2): no tiene sentido volver a pedir robots.txt
-  en cada ejecución si se comprobó hace una hora -- se cachea por tienda.
-- backoff tras 429 (A.3): si una tienda nos pidió parar, el SIGUIENTE ciclo
-  de scraping (no solo los reintentos de la ejecución actual) debe
-  respetarlo -- para eso el estado tiene que sobrevivir al proceso.
+Interfaz IDÉNTICA a la versión anterior (get_state/update_state por
+dominio, misma StoreState) a propósito -- ningún punto de base_script.py
+que ya use esta interfaz necesita cambiar. La conversión unix-timestamp
+<-> TIMESTAMPTZ ocurre solo aquí dentro.
 
-Interfaz deliberadamente pequeña (get_state/update_state por dominio) para
-que, cuando llegue la persistencia en Postgres (bloque B), sustituir este
-módulo por lecturas/escrituras a la tabla `store` (que ya tiene
-crawl_delay_seconds, backoff_until y robots_checked_at) no requiera tocar
-ningún punto de base_script.py que ya use esta interfaz.
-"""
+Degradación: si Postgres no está disponible, get_state() devuelve el
+estado por defecto (permisivo -- sin backoff, sin caché de robots.txt) y
+update_state() se limita a avisar por log en vez de fallar. Un Postgres
+caído no debe impedir que el scraper funcione, igual que ya ocurre con el
+resto de la persistencia (ver persist_scrape_results en persistence.py).
+
+LIMITACIÓN conocida: en una base de datos recién creada, la fila de
+`store` para una tienda no existe hasta que corre sync_stores() (al final
+del primer ciclo completo) -- update_state() antes de eso no tiene fila
+que actualizar (0 filas afectadas, sin error) y el resultado del chequeo
+de robots.txt de ESE primer ciclo no queda cacheado. A partir del segundo
+ciclo la fila ya existe y la caché funciona con normalidad."""
 
 from __future__ import annotations
 
-import json
-import os
-import tempfile
-import threading
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Optional
-
-STATE_PATH = os.path.join(os.path.dirname(__file__), "store_state.json")
-
-# Un único lock de proceso: run_all_stores lanza un hilo por tienda y cada
-# uno puede llamar a update_state() casi a la vez. Cada hilo solo toca su
-# propia clave (el dominio), pero la escritura es del fichero ENTERO, así
-# que sin lock un hilo podría pisar la actualización de otro (leer-modificar-
-# escribir no es atómico entre hilos sin esto).
-_LOCK = threading.Lock()
 
 
 @dataclass
@@ -46,48 +42,99 @@ class StoreState:
     backoff_until: Optional[float] = None        # unix timestamp: no reintentar esta tienda antes de esto
 
 
-def _read_all() -> dict:
-    if not os.path.exists(STATE_PATH):
-        return {}
-    try:
-        with open(STATE_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return {}
+# domain (StoreState.website_url) -> nombre de columna en `store`.
+_COLUMNS = {
+    "robots_checked_at": "robots_checked_at",
+    "crawl_delay": "crawl_delay_seconds",
+    "disallowed": "disallowed",
+    "consecutive_failures": "consecutive_failures",
+    "backoff_until": "backoff_until",
+}
+_TIMESTAMP_FIELDS = ("robots_checked_at", "backoff_until")
 
 
-def _write_all(data: dict) -> None:
-    """Escritura atómica (fichero temporal + os.replace) -- evita dejar
-    store_state.json a medio escribir si el proceso se corta a mitad de un
-    run_all_stores."""
-    directory = os.path.dirname(STATE_PATH)
-    fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=".store_state_", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, sort_keys=True)
-        os.replace(tmp_path, STATE_PATH)
-    except BaseException:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-        raise
+def _to_unix(value) -> Optional[float]:
+    return value.timestamp() if value is not None else None
+
+
+def _from_unix(value: Optional[float]):
+    return datetime.fromtimestamp(value, tz=timezone.utc) if value is not None else None
 
 
 def get_state(domain: str) -> StoreState:
-    """Devuelve el estado guardado de `domain` (la StoreConfig.domain, ya
-    estable y normalizada -- ver B.1 de cambios-necesarios-scraper.md), o
-    los valores por defecto si nunca se guardó nada de esta tienda."""
-    with _LOCK:
-        raw = _read_all().get(domain, {})
-    defaults = asdict(StoreState())
-    return StoreState(**{**defaults, **raw})
+    """Devuelve el estado guardado de `domain` (StoreConfig.domain, la
+    misma clave estable que usa B.1 para el UPSERT de `store`), o los
+    valores por defecto si la tienda no tiene fila todavía o Postgres no
+    está disponible."""
+    import persistence  # import diferido: evita el ciclo persistence -> base_script -> store_state
+
+    try:
+        conn = persistence.get_connection()
+    except Exception as e:
+        print(f"[store_state] AVISO: sin conexión a Postgres ({type(e).__name__}: {e}), "
+              f"se asume estado por defecto para {domain}")
+        return StoreState()
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT crawl_delay_seconds, backoff_until, robots_checked_at, disallowed, consecutive_failures "
+                "FROM store WHERE website_url = %s",
+                (domain,),
+            )
+            row = cur.fetchone()
+    except Exception as e:
+        print(f"[store_state] AVISO: fallo leyendo estado de {domain} ({type(e).__name__}: {e}), "
+              f"se asume estado por defecto")
+        return StoreState()
+    finally:
+        conn.close()
+
+    if row is None:
+        return StoreState()
+
+    crawl_delay, backoff_until, robots_checked_at, disallowed, consecutive_failures = row
+    return StoreState(
+        robots_checked_at=_to_unix(robots_checked_at),
+        crawl_delay=float(crawl_delay) if crawl_delay is not None else None,
+        disallowed=bool(disallowed),
+        consecutive_failures=consecutive_failures or 0,
+        backoff_until=_to_unix(backoff_until),
+    )
 
 
 def update_state(domain: str, **fields) -> None:
-    """Lee-modifica-escribe bajo lock: solo actualiza los campos pasados,
-    conserva el resto tal cual estaban."""
-    with _LOCK:
-        data = _read_all()
-        current = {**asdict(StoreState()), **data.get(domain, {})}
-        current.update(fields)
-        data[domain] = current
-        _write_all(data)
+    """Actualiza solo los campos pasados en la fila de `store` de `domain`.
+    Si Postgres no está disponible, o la fila todavía no existe (ver
+    LIMITACIÓN en el docstring del módulo), no falla -- avisa por log."""
+    if not fields:
+        return
+
+    import persistence  # import diferido: evita el ciclo persistence -> base_script -> store_state
+
+    try:
+        conn = persistence.get_connection()
+    except Exception as e:
+        print(f"[store_state] AVISO: sin conexión a Postgres ({type(e).__name__}: {e}), "
+              f"no se guarda el estado de {domain}")
+        return
+
+    try:
+        set_clauses, values = [], []
+        for key, value in fields.items():
+            if key in _TIMESTAMP_FIELDS:
+                value = _from_unix(value)
+            elif key == "crawl_delay" and value is not None:
+                value = round(value)  # crawl_delay_seconds es INTEGER -- ver comentario en el esquema
+            set_clauses.append(f"{_COLUMNS[key]} = %s")
+            values.append(value)
+        values.append(domain)
+
+        with conn.cursor() as cur:
+            cur.execute(f"UPDATE store SET {', '.join(set_clauses)} WHERE website_url = %s", values)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"[store_state] AVISO: fallo guardando estado de {domain} ({type(e).__name__}: {e})")
+    finally:
+        conn.close()

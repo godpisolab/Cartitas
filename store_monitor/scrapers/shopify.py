@@ -3,8 +3,18 @@
 from __future__ import annotations
 
 import time
+from typing import Optional
 
-from base_script import Product, build_session, parse_price_text, request_with_retries
+from base_script import (
+    Product,
+    RefreshedVariant,
+    RefreshOutcome,
+    StoreConfig,
+    build_session,
+    conditional_headers,
+    parse_price_text,
+    request_with_retries,
+)
 from scrapers.base import BaseStoreScraper
 
 
@@ -83,3 +93,50 @@ class ShopifyScraper(BaseStoreScraper):
             )
             for variant in variants
         ]
+
+    @classmethod
+    def refresh_product(cls, config: StoreConfig, store_url: str, *, store_sku: Optional[str] = None,
+                         etag: Optional[str] = None, last_modified: Optional[str] = None) -> RefreshOutcome:
+        """E.2: el propio store_url + '.json' es el endpoint de detalle
+        (mismo host que products.json, Shopify siempre lo expone así). Una
+        sola petición devuelve TODAS las variantes de golpe -- si el
+        producto tiene varias (idioma, sobre/caja...), se devuelve una
+        RefreshedVariant por cada una, y el llamador empareja por el título
+        exacto de variante contra el raw_variant ya guardado."""
+        session = build_session(anti_bot=False, config=config)
+        resp = request_with_retries(
+            session, f"{store_url}.json",
+            headers=conditional_headers(etag, last_modified),
+        )
+
+        if resp is None:
+            return RefreshOutcome(status="error", error="fallo de red irrecuperable")
+        if resp.status_code == 304:
+            return RefreshOutcome(status="not_modified")
+        if resp.status_code != 200:
+            return RefreshOutcome(status="error", error=f"status {resp.status_code}")
+
+        try:
+            data = resp.json()
+        except ValueError:
+            return RefreshOutcome(status="error", error="respuesta no es JSON válido")
+
+        product = data.get("product") or {}
+        variants = product.get("variants") or []
+        if not variants:
+            return RefreshOutcome(status="error", error="sin variantes en la respuesta")
+
+        return RefreshOutcome(
+            status="modified",
+            variants=[
+                RefreshedVariant(
+                    variant=v.get("title"),
+                    price=parse_price_text(v.get("price")),
+                    stock_status="DISPONIBLE" if v.get("available") else "AGOTADO",
+                    name=product.get("title"),
+                )
+                for v in variants
+            ],
+            etag=resp.headers.get("ETag"),
+            last_modified=resp.headers.get("Last-Modified"),
+        )

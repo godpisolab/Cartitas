@@ -1,0 +1,1560 @@
+{
+  "source": "https://en.onepiece-cardgame.com/products/ (sitio oficial Bandai, version EN NA/EU/OC/LATAM/ME)",
+  "generated": "2026-08-26",
+  "note": "Catalogo completo de productos oficiales de One Piece Card Game (Bandai) publicados hasta la fecha, ordenados cronologicamente. Precios en MSRP USD segun la web oficial; pueden variar por region. Los productos 'OTHERS' incluyen mazos complementarios, fundas, cajas, playmats, colecciones premium y otros articulos no-booster/no-deck principal.",
+  "total_products": 194,
+  "products": [
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Worst Generation (Pre-release)",
+      "code": "ST-02 PRE",
+      "release_date": "2022-09-30",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Straw Hat Crew (Pre-release)",
+      "code": "ST-01 PRE",
+      "release_date": "2022-09-30",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Animal Kingdom Pirates (Pre-release)",
+      "code": "ST-04 PRE",
+      "release_date": "2022-09-30",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: The Seven Warlords of the Sea (Pre-release)",
+      "code": "ST-03 PRE",
+      "release_date": "2022-09-30",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Straw Hat Crew",
+      "code": "ST-01",
+      "release_date": "2022-12-02",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Worst Generation",
+      "code": "ST-02",
+      "release_date": "2022-12-02",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: The Seven Warlords of the Sea",
+      "code": "ST-03",
+      "release_date": "2022-12-02",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Animal Kingdom Pirates",
+      "code": "ST-04",
+      "release_date": "2022-12-02",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Booster Pack: Romance Dawn",
+      "code": "OP-01",
+      "release_date": "2022-12-02",
+      "msrp_usd": "$4.19 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Sleeves 1",
+      "code": null,
+      "release_date": "2022-12-02",
+      "msrp_usd": "$6.50",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "9-Pocket Binder Set - Manga Version",
+      "code": null,
+      "release_date": "2022-12 (delivery)",
+      "msrp_usd": "$28.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "9-Pocket Binder Set - Anime Version",
+      "code": null,
+      "release_date": "2022-12 (delivery)",
+      "msrp_usd": "$28.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "9-Pocket Binder Set - Original Illustration Version",
+      "code": null,
+      "release_date": "2022-12 (delivery)",
+      "msrp_usd": "$28.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck ONE PIECE FILM edition",
+      "code": "ST-05",
+      "release_date": "2023-02-03",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Booster Pack: Paramount War",
+      "code": "OP-02",
+      "release_date": "2023-03-10",
+      "msrp_usd": "$4.19 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Absolute Justice",
+      "code": "ST-06",
+      "release_date": "2023-03-10",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Clear Card Case",
+      "code": null,
+      "release_date": "2023-04-28",
+      "msrp_usd": "$6.50",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Sleeves 2",
+      "code": null,
+      "release_date": "2023-04-28",
+      "msrp_usd": "$6.50",
+      "exclusivity": null
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Booster Pack: Pillars of Strength",
+      "code": "OP-03",
+      "release_date": "2023-06-30",
+      "msrp_usd": "$4.19 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Playmat",
+      "code": null,
+      "release_date": "2023-06-30",
+      "msrp_usd": "$35.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Storage Box",
+      "code": null,
+      "release_date": "2023-06-30",
+      "msrp_usd": "$8.00",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Big Mom Pirates",
+      "code": "ST-07",
+      "release_date": "2023-06-30",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Premium Card Collection -25th Edition-",
+      "code": null,
+      "release_date": "2023-07 (delivery)",
+      "msrp_usd": "$25.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Playmat and Card Case Set -25th Edition-",
+      "code": null,
+      "release_date": "2023-07 (delivery)",
+      "msrp_usd": "$43.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Monkey D. Luffy",
+      "code": "ST-08",
+      "release_date": "2023-08-11",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Yamato",
+      "code": "ST-09",
+      "release_date": "2023-08-11",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Card Case",
+      "code": null,
+      "release_date": "2023-09",
+      "msrp_usd": "$7.50",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Playmat and Storage Box Set",
+      "code": null,
+      "release_date": "2023-08 (delivery)",
+      "msrp_usd": "$40.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Booster Pack: Kingdoms of Intrigue",
+      "code": "OP-04",
+      "release_date": "2023-09-22",
+      "msrp_usd": "$4.49 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Double Pack Set Vol.1",
+      "code": "DP-01",
+      "release_date": "2023-09-22",
+      "msrp_usd": "$9.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Sleeves 3",
+      "code": null,
+      "release_date": "2023-09-29",
+      "msrp_usd": "$8.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "ONE PIECE Card Game Gift Collection 2023",
+      "code": "GC-01",
+      "release_date": "2023-10-27",
+      "msrp_usd": "$29.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Playmat and Storage Box Set -Trafalgar.Law-",
+      "code": null,
+      "release_date": "2023-10 (delivery)",
+      "msrp_usd": "$40.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Playmat and Storage Box Set -Shanks-",
+      "code": null,
+      "release_date": "2023-10 (delivery)",
+      "msrp_usd": "$40.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Playmat and Storage Box Set -Portgas.D.Ace-",
+      "code": null,
+      "release_date": "2023-10 (delivery)",
+      "msrp_usd": "$40.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Playmat and Storage Box Set -Nami-",
+      "code": null,
+      "release_date": "2023-10 (delivery)",
+      "msrp_usd": "$40.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Playmat and Storage Box Set -Eustass\"Captain\"Kid-",
+      "code": null,
+      "release_date": "2023-10 (delivery)",
+      "msrp_usd": "$40.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Devil Fruits Collection Vol.1",
+      "code": "DF-01",
+      "release_date": "2023-11-03",
+      "msrp_usd": "$24.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Premium Card Collection -FILM RED Edition-",
+      "code": null,
+      "release_date": "2023-11 (delivery)",
+      "msrp_usd": "$30.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Special Goods Set -Ace/Sabo/Luffy-",
+      "code": null,
+      "release_date": "2023-11 (delivery)",
+      "msrp_usd": "$42.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "DECKS",
+      "name": "Ultra Deck: The Three Captains",
+      "code": "ST-10",
+      "release_date": "2023-11-10",
+      "msrp_usd": "$29.99",
+      "exclusivity": null
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Booster Pack: Awakening of the New Era",
+      "code": "OP-05",
+      "release_date": "2023-12-08",
+      "msrp_usd": "$4.49 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Double Pack Set Vol.2",
+      "code": "DP-02",
+      "release_date": "2023-12-08",
+      "msrp_usd": "$9.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Sleeves 4",
+      "code": null,
+      "release_date": "2023-12-29",
+      "msrp_usd": "$8.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Storage Box 2",
+      "code": null,
+      "release_date": "2023-12-29",
+      "msrp_usd": "$8.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Limited Card Case -Monkey.D.Luffy-",
+      "code": null,
+      "release_date": "2024-01-26",
+      "msrp_usd": "$7.50",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Limited Card Sleeve",
+      "code": null,
+      "release_date": null,
+      "msrp_usd": "$9.00",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Uta",
+      "code": "ST-11",
+      "release_date": "2024-02-02",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Booster Pack: Wings of the Captain",
+      "code": "OP-06",
+      "release_date": "2024-03-15",
+      "msrp_usd": "$4.49 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Zoro and Sanji",
+      "code": "ST-12",
+      "release_date": "2024-03-15",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Double Pack Set Vol.3",
+      "code": "DP-03",
+      "release_date": "2024-03-15",
+      "msrp_usd": "$9.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Sleeves 5",
+      "code": null,
+      "release_date": "2024-03-29",
+      "msrp_usd": "$8.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Card Sleeve Limited Edition",
+      "code": null,
+      "release_date": "2024-03-29",
+      "msrp_usd": "$9.00",
+      "exclusivity": "Official Shops Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Storage Box Premium Edition",
+      "code": null,
+      "release_date": "2024-03-29",
+      "msrp_usd": "$12.00",
+      "exclusivity": "Official Shops Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Japanese 1st Anniversary Set",
+      "code": null,
+      "release_date": "2024-03 (delivery)",
+      "msrp_usd": "$100.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Premium Card Collection -Best Selection-",
+      "code": null,
+      "release_date": "2024-04 (delivery)",
+      "msrp_usd": "$30.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Premium Card Collection -Live Action Edition-",
+      "code": null,
+      "release_date": "2024-04 (delivery)",
+      "msrp_usd": "$25.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Special Set -Former Four Emperors-",
+      "code": null,
+      "release_date": "2024-04 (delivery)",
+      "msrp_usd": "$42.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "DECKS",
+      "name": "Ultra Deck: The Three Brothers",
+      "code": "ST-13",
+      "release_date": "2024-04-19",
+      "msrp_usd": "$34.99",
+      "exclusivity": null
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Extra Booster: Memorial Collection",
+      "code": "EB-01",
+      "release_date": "2024-05-03",
+      "msrp_usd": "$4.49 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Sleeves 6",
+      "code": null,
+      "release_date": "2024-06",
+      "msrp_usd": "$8.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "ONE PIECE Card Game English Version 1st Anniversary Set",
+      "code": null,
+      "release_date": "2024-06 (delivery)",
+      "msrp_usd": "$90.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Booster Pack: 500 Years in the Future",
+      "code": "OP-07",
+      "release_date": "2024-06-28",
+      "msrp_usd": "$4.49 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Double Pack Set Vol.4",
+      "code": "DP-04",
+      "release_date": "2024-06-28",
+      "msrp_usd": "$9.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Playmat -Ace & Sabo-",
+      "code": null,
+      "release_date": "2024-06-28",
+      "msrp_usd": "$35.00",
+      "exclusivity": "Official Shops Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Playmat -Limited Edition Vol.1-",
+      "code": null,
+      "release_date": "2024-08 (delivery)",
+      "msrp_usd": "$35.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "UTA Collection",
+      "code": null,
+      "release_date": "2024-08 (delivery)",
+      "msrp_usd": "$40.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Premium Card Collection -BANDAI CARD GAMES Fest. 23-24 Edition-",
+      "code": null,
+      "release_date": "2024-08 (delivery)",
+      "msrp_usd": "$25.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: 3D2Y",
+      "code": "ST-14",
+      "release_date": "2024-08-16",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Treasure Boosters Set",
+      "code": null,
+      "release_date": "2024-08-30",
+      "msrp_usd": "$19.99",
+      "exclusivity": null
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Booster Pack: Two Legends",
+      "code": "OP-08",
+      "release_date": "2024-09-13",
+      "msrp_usd": "$4.49 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Double Pack Set Vol.5",
+      "code": "DP-05",
+      "release_date": "2024-09-13",
+      "msrp_usd": "$9.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Sleeves 7",
+      "code": null,
+      "release_date": "2024-09-13",
+      "msrp_usd": "$8.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Premium Card Collection -Best Selection Vol.2-",
+      "code": null,
+      "release_date": "2024-10 (delivery)",
+      "msrp_usd": "$25.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Premium Booster: One Piece Card The Best",
+      "code": "PRB-01",
+      "release_date": "2024-11-08",
+      "msrp_usd": "$5.49 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Devil Fruits Collection Vol.2",
+      "code": "DF-02",
+      "release_date": "2024-11-08",
+      "msrp_usd": "$24.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Card Sleeve TCG+ Store Edition Vol.1",
+      "code": null,
+      "release_date": "2024-11-08",
+      "msrp_usd": "$8.00",
+      "exclusivity": "TCG+ Stores Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "ONE PIECE Card Game Sound Loader Volume.1",
+      "code": null,
+      "release_date": "2024-11",
+      "msrp_usd": null,
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "ONE PIECE Card Game Sound Loader Volume.2",
+      "code": null,
+      "release_date": "2024-11",
+      "msrp_usd": null,
+      "exclusivity": null
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Booster Pack: Emperors in the New World",
+      "code": "OP-09",
+      "release_date": "2024-12-13",
+      "msrp_usd": "$4.49 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Double Pack Set Vol.6",
+      "code": "DP-06",
+      "release_date": "2024-12-13",
+      "msrp_usd": "$9.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Sleeves 8",
+      "code": null,
+      "release_date": "2024-12-13",
+      "msrp_usd": "$8.00",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Red Edward.Newgate",
+      "code": "ST-15",
+      "release_date": "2024-10-25",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Green Uta",
+      "code": "ST-16",
+      "release_date": "2024-10-25",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Blue Donquixote Doflamingo",
+      "code": "ST-17",
+      "release_date": "2024-10-25",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Purple Monkey.D.Luffy",
+      "code": "ST-18",
+      "release_date": "2024-10-25",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Black Smoker",
+      "code": "ST-19",
+      "release_date": "2024-10-25",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Yellow Charlotte Katakuri",
+      "code": "ST-20",
+      "release_date": "2024-10-25",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Premium Card Collection -Leader Collection-",
+      "code": null,
+      "release_date": null,
+      "msrp_usd": "$15.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Limited Card Sleeve -Championship 2024 KV-",
+      "code": null,
+      "release_date": null,
+      "msrp_usd": "$9.00",
+      "exclusivity": "Event Venues Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Limited Card Sleeve -Standard Blue Gold-",
+      "code": null,
+      "release_date": null,
+      "msrp_usd": "$9.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Illustration Box Vol.1",
+      "code": null,
+      "release_date": "2025-03-07",
+      "msrp_usd": "$19.99",
+      "exclusivity": "North America Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Illustration Box Vol.2",
+      "code": null,
+      "release_date": "2025-03-07",
+      "msrp_usd": "$19.99",
+      "exclusivity": "North America Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Card Case Premium Edition Vol.1",
+      "code": null,
+      "release_date": "2025-03",
+      "msrp_usd": "$24.00",
+      "exclusivity": "Official Shops Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Special DON!! Set Vol.1 -Luffy-",
+      "code": "SDS-01",
+      "release_date": "2025-03",
+      "msrp_usd": "$9.99",
+      "exclusivity": "North America Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Special DON!! Set Vol.2 -Ace-",
+      "code": "SDS-02",
+      "release_date": "2025-03",
+      "msrp_usd": "$9.99",
+      "exclusivity": "North America Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Special DON!! Set Vol.3 -Sabo-",
+      "code": "SDS-03",
+      "release_date": "2025-03",
+      "msrp_usd": "$9.99",
+      "exclusivity": "North America Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Playmat -Limited Edition Vol.2-",
+      "code": null,
+      "release_date": "2025-01 (delivery)",
+      "msrp_usd": "$35.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck EX: Gear 5",
+      "code": "ST-21",
+      "release_date": "2025-03-14",
+      "msrp_usd": "$34.99",
+      "exclusivity": null
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Booster Pack: Royal Blood",
+      "code": "OP-10",
+      "release_date": "2025-03-21",
+      "msrp_usd": "$4.99 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Sleeves 9",
+      "code": null,
+      "release_date": "2025-03-21",
+      "msrp_usd": "$8.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Card Sleeve TCG+ Store Edition Vol.2",
+      "code": null,
+      "release_date": "2025-03-21",
+      "msrp_usd": "$8.00",
+      "exclusivity": "TCG+ Stores Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Premium Card Collection -Best Selection Vol.3-",
+      "code": null,
+      "release_date": "2025-04 (delivery)",
+      "msrp_usd": "$25.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Tin Pack Set Vol.1",
+      "code": "TS-01",
+      "release_date": "2025-04-18",
+      "msrp_usd": "$9.99",
+      "exclusivity": null
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Extra Booster: Anime 25th Collection",
+      "code": "EB-02",
+      "release_date": "2025-05-09",
+      "msrp_usd": "$4.99 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Seven Warlords of the Sea Binder Set",
+      "code": null,
+      "release_date": "2025-09 (delivery)",
+      "msrp_usd": "$50.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Sleeves 10",
+      "code": null,
+      "release_date": "2025-06-06",
+      "msrp_usd": "$8.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Card Sleeve TCG+ Store Edition Vol.3",
+      "code": null,
+      "release_date": "2025-06-06",
+      "msrp_usd": "$8.00",
+      "exclusivity": "TCG+ Stores Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Card Sleeve Limited Edition Vol.3",
+      "code": null,
+      "release_date": "2025-06-06",
+      "msrp_usd": "$9.00",
+      "exclusivity": "Official Shops Exclusive"
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Booster Pack: A Fist of Divine Speed",
+      "code": "OP-11",
+      "release_date": "2025-06-06",
+      "msrp_usd": "$4.99 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Double Pack Set Vol.7",
+      "code": "DP-07",
+      "release_date": "2025-06-06",
+      "msrp_usd": "$9.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Red Shanks",
+      "code": "ST-23",
+      "release_date": "2025-06-06",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Green Jewelry Bonney",
+      "code": "ST-24",
+      "release_date": "2025-06-06",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Blue Buggy",
+      "code": "ST-25",
+      "release_date": "2025-06-06",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Purple/Black Monkey.D.Luffy",
+      "code": "ST-26",
+      "release_date": "2025-06-06",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Black Marshall.D.Teach",
+      "code": "ST-27",
+      "release_date": "2025-06-06",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Green/Yellow Yamato",
+      "code": "ST-28",
+      "release_date": "2025-06-06",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Playmat -Bandai Card Games Fest 24-25 Edition-",
+      "code": null,
+      "release_date": "2025-07 (delivery)",
+      "msrp_usd": "$35.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Playmat -Bandai Card Games Fest 23-24 Edition-",
+      "code": null,
+      "release_date": null,
+      "msrp_usd": "$30.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Playmat Limited Edition Vol.3",
+      "code": null,
+      "release_date": "2025-09 (delivery)",
+      "msrp_usd": "$30.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Premium Card Collection -Best Selection Vol.4-",
+      "code": null,
+      "release_date": "2025-09 (delivery)",
+      "msrp_usd": "$25.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Ace & Newgate",
+      "code": "ST-22",
+      "release_date": "2025-09-05",
+      "msrp_usd": "$16.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Premium Card Collection -6 assort vol.1-",
+      "code": null,
+      "release_date": "2025-09-20",
+      "msrp_usd": "$15.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Limited Card Sleeve -Standard Purple Silver-",
+      "code": null,
+      "release_date": "2025-09-20",
+      "msrp_usd": "$9.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Limited Card Sleeve Premium Matte vol.3",
+      "code": null,
+      "release_date": "2025-09-20",
+      "msrp_usd": "$9.00",
+      "exclusivity": "Official Shops Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Double Pack Set Vol.8",
+      "code": "DP-08",
+      "release_date": "2025-08-22",
+      "msrp_usd": "$9.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Card Sleeve TCG+ Store Edition vol.4",
+      "code": null,
+      "release_date": "2025-08-22",
+      "msrp_usd": "$8.00",
+      "exclusivity": "TCG+ Stores Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Dice and Dice Case Set",
+      "code": null,
+      "release_date": "2025-08-22",
+      "msrp_usd": "$15.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Storage Box EX -Monkey.D.Luffy-",
+      "code": null,
+      "release_date": "2025-08-22",
+      "msrp_usd": "$35.00",
+      "exclusivity": "Official Shops Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Sleeves 11",
+      "code": null,
+      "release_date": "2025-08-22",
+      "msrp_usd": "$8.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Illustration Box Vol.3",
+      "code": null,
+      "release_date": "2025-08-22",
+      "msrp_usd": "$20.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Illustration Box Vol.4",
+      "code": null,
+      "release_date": "2025-08-22",
+      "msrp_usd": "$20.99",
+      "exclusivity": null
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Booster Pack: Legacy of the Master",
+      "code": "OP-12",
+      "release_date": "2025-08-22",
+      "msrp_usd": "$4.99 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Playmat & Card Set -Whole Cake Island Arc-",
+      "code": null,
+      "release_date": "2025-12-12",
+      "msrp_usd": "$43.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Limited Card Sleeve Premium Matte vol.4",
+      "code": null,
+      "release_date": "2025-12-12",
+      "msrp_usd": "$9.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Devil Fruits Collection Vol.3",
+      "code": "DF-03",
+      "release_date": "2025-11-14",
+      "msrp_usd": "$24.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Card Sleeve Limited Edition Vol.2",
+      "code": null,
+      "release_date": "2025-11-08",
+      "msrp_usd": "$9.00",
+      "exclusivity": "Official Shops Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Storage Box Premium Edition vol.2",
+      "code": null,
+      "release_date": "2025-11-07",
+      "msrp_usd": "$24.00",
+      "exclusivity": "Official Shops Exclusive"
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Booster Pack: Carrying On His Will",
+      "code": "OP-13",
+      "release_date": "2025-11-07",
+      "msrp_usd": "$4.99 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Card Sleeve TCG+ Store Edition vol.5",
+      "code": null,
+      "release_date": "2025-11-07",
+      "msrp_usd": "$8.00",
+      "exclusivity": "TCG+ Stores Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Sleeves 12",
+      "code": null,
+      "release_date": "2025-11-07",
+      "msrp_usd": "$8.00",
+      "exclusivity": null
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Premium Booster: One Piece Card The Best vol.2",
+      "code": "PRB-02",
+      "release_date": "2025-10-03",
+      "msrp_usd": "$5.49 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Card Sleeve Limited Edition Vol.4",
+      "code": null,
+      "release_date": "2025-10-03",
+      "msrp_usd": "$9.00",
+      "exclusivity": "Official Shops Exclusive"
+    },
+    {
+      "category": "DECKS",
+      "name": "Learn Together Deck Set",
+      "code": null,
+      "release_date": "2025-10-03",
+      "msrp_usd": "$39.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "ONE PIECE Card Game English Version 2nd Anniversary Set",
+      "code": null,
+      "release_date": "2025-06 (delivery)",
+      "msrp_usd": "$90.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Japanese 2nd Anniversary Set",
+      "code": null,
+      "release_date": "2025-03 (delivery)",
+      "msrp_usd": "$180.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "ONE PIECE Card Game Japanese 3rd Anniversary Set",
+      "code": null,
+      "release_date": "2026-03 (delivery)",
+      "msrp_usd": "$200.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Premium Card Collection -Best Selection Vol.5-",
+      "code": null,
+      "release_date": "2026-02 (delivery)",
+      "msrp_usd": "$25.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Sleeves 13",
+      "code": null,
+      "release_date": "2026-02-20",
+      "msrp_usd": "$8.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Card Sleeve Limited Edition Vol.5",
+      "code": null,
+      "release_date": "2026-02-20",
+      "msrp_usd": "$9.00",
+      "exclusivity": "Official Shops Exclusive"
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Extra Booster: One Piece Heroines Edition",
+      "code": "EB-03",
+      "release_date": "2026-02-20",
+      "msrp_usd": "$4.99 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Tin Pack Set Vol.2",
+      "code": "TS-02",
+      "release_date": "2026-01-30",
+      "msrp_usd": "$9.99",
+      "exclusivity": null
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Booster Pack: The Azure Sea's Seven",
+      "code": "OP-14 / EB-04 (parte 1)",
+      "release_date": "2026-01-16",
+      "msrp_usd": "$4.99 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Double Pack Set Vol.9",
+      "code": "DP-09",
+      "release_date": "2026-01-16",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Illustration Box Vol.5",
+      "code": null,
+      "release_date": "2026-01-16",
+      "msrp_usd": "$23.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Illustration Box Vol.6",
+      "code": null,
+      "release_date": "2026-01-16",
+      "msrp_usd": "$23.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Egghead",
+      "code": "ST-29",
+      "release_date": "2026-01-16",
+      "msrp_usd": "$16.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Playmat Limited Edition Vol.4",
+      "code": null,
+      "release_date": "2026-02 (delivery)",
+      "msrp_usd": "$30.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Playmat Limited Edition vol.6",
+      "code": null,
+      "release_date": null,
+      "msrp_usd": "$30.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Premium Card Collection -Best Selection vol.7-",
+      "code": null,
+      "release_date": null,
+      "msrp_usd": "$25.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Booster Pack: The Time of Battle",
+      "code": "OP-16",
+      "release_date": "2026-06-12",
+      "msrp_usd": "$4.99 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Double Pack Set Vol.11",
+      "code": "DP-11",
+      "release_date": "2026-06-12",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Playmat Limited Edition Vol.5",
+      "code": null,
+      "release_date": "2026-07 (delivery)",
+      "msrp_usd": "$30.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Card Sleeves 15",
+      "code": null,
+      "release_date": "2026-06-12",
+      "msrp_usd": "$8.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Limited Card Sleeve Premium Matte vol.5",
+      "code": null,
+      "release_date": "2026-05-29",
+      "msrp_usd": "$9.00",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck EX: Luffy & Ace",
+      "code": "ST-30",
+      "release_date": "2026-06-12",
+      "msrp_usd": "$19.99",
+      "exclusivity": null
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Booster Pack: Adventure on Kami's Island",
+      "code": "OP-15 / EB-04 (parte 2)",
+      "release_date": "2026-04-03",
+      "msrp_usd": "$4.99 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Double Pack Set Vol.10",
+      "code": "DP-10",
+      "release_date": "2026-04-03",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Card Sleeve TCG+ Store Edition Vol.6",
+      "code": null,
+      "release_date": "2026-04-03",
+      "msrp_usd": "$8.00",
+      "exclusivity": "TCG+ Stores Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Card Sleeves 14",
+      "code": null,
+      "release_date": "2026-04-03",
+      "msrp_usd": "$8.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "ONE PIECE Card Game English Version 3rd Anniversary Set",
+      "code": null,
+      "release_date": "2026-08 (delivery)",
+      "msrp_usd": "$120.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Illustration Box Vol.7",
+      "code": null,
+      "release_date": "2026-07-31",
+      "msrp_usd": "$22.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Illustration Box Vol.8",
+      "code": null,
+      "release_date": "2026-07-31",
+      "msrp_usd": "$22.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Red Monkey.D.Luffy",
+      "code": "ST-31",
+      "release_date": "2026-07-31",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Green Roronoa Zoro",
+      "code": "ST-32",
+      "release_date": "2026-07-31",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Blue Kuzan",
+      "code": "ST-33",
+      "release_date": "2026-07-31",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Purple Charlotte Katakuri",
+      "code": "ST-34",
+      "release_date": "2026-07-31",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Red/Black Sabo",
+      "code": "ST-35",
+      "release_date": "2026-07-31",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "DECKS",
+      "name": "Starter Deck: Yellow Eustass\"Captain\"Kid",
+      "code": "ST-36",
+      "release_date": "2026-07-31",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official 9 Pocket Binder vol.1",
+      "code": null,
+      "release_date": "2026-06-05",
+      "msrp_usd": "$35.00",
+      "exclusivity": "Official Shops Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Premium Card Collection -29th Anniversary Edition-",
+      "code": null,
+      "release_date": null,
+      "msrp_usd": "$10.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Card Sleeve Limited Edition vol.6",
+      "code": null,
+      "release_date": null,
+      "msrp_usd": "$9.00",
+      "exclusivity": "Official Shops Exclusive"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Chinese 3rd Anniversary Set",
+      "code": null,
+      "release_date": null,
+      "msrp_usd": "$100.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Premium Card Collection -Ace & Sabo & Luffy-",
+      "code": null,
+      "release_date": null,
+      "msrp_usd": "$30.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Limited Card Sleeve Premium Matte vol.6",
+      "code": null,
+      "release_date": null,
+      "msrp_usd": "$12.00",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Premium Card Collection -Live Action Edition vol.2 Baroque Works-",
+      "code": null,
+      "release_date": "2026-11 (delivery)",
+      "msrp_usd": "$20.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "OTHERS",
+      "name": "Premium Card Collection -Live Action Edition vol.2 Straw Hat Crew-",
+      "code": null,
+      "release_date": "2026-11 (delivery)",
+      "msrp_usd": "$20.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Extra Booster: One Piece Heroines Edition vol.2",
+      "code": "EB-05",
+      "release_date": "2026-10 (approx.)",
+      "msrp_usd": "$4.99 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "ONE PIECE Heroines Special Set",
+      "code": null,
+      "release_date": "2026-09 (delivery)",
+      "msrp_usd": "$70.00",
+      "exclusivity": "Premium Bandai"
+    },
+    {
+      "category": "DECKS",
+      "name": "Set Sail Deck Set",
+      "code": "SD-01",
+      "release_date": "2026-09-18",
+      "msrp_usd": "$24.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Double Pack Set Vol.12",
+      "code": "DP-12",
+      "release_date": "2026-08-28",
+      "msrp_usd": "$11.99",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Official Card Sleeves 16",
+      "code": null,
+      "release_date": "2026-08-28",
+      "msrp_usd": "$10.00",
+      "exclusivity": null
+    },
+    {
+      "category": "BOOSTERS",
+      "name": "Booster Pack: The World's Strongest Warriors",
+      "code": "OP-17",
+      "release_date": "2026-08-28",
+      "msrp_usd": "$4.99 per pack",
+      "exclusivity": null
+    },
+    {
+      "category": "OTHERS",
+      "name": "Premium Card Collection -Best Selection Vol.6-",
+      "code": null,
+      "release_date": "2026-08 (delivery)",
+      "msrp_usd": "$25.00",
+      "exclusivity": "Premium Bandai"
+    }
+  ]
+}

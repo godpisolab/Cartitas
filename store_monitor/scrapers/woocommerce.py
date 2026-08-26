@@ -10,7 +10,11 @@ from bs4 import BeautifulSoup
 
 from base_script import (
     Product,
+    RefreshedVariant,
+    RefreshOutcome,
+    StoreConfig,
     build_session,
+    conditional_headers,
     parse_price_minor_unit,
     parse_price_text,
     request_with_retries,
@@ -58,6 +62,61 @@ class WooCommerceScraper(BaseStoreScraper):
 
         html_products = self._scrape_via_html()
         return html_products or (products or [])
+
+    @classmethod
+    def refresh_product(cls, config: StoreConfig, store_url: str, *, store_sku: Optional[str] = None,
+                         etag: Optional[str] = None, last_modified: Optional[str] = None) -> RefreshOutcome:
+        """E.2: la Store API tiene un endpoint de detalle por ID
+        (/wp-json/wc/store/v1/products/{id}) -- necesita store_sku (D.6,
+        el id_product que guarda la Store API en el barrido completo).
+
+        Limitación real: los productos descubiertos por el FALLBACK HTML
+        (ver _scrape_via_html) no tienen id_product (siempre None, no está
+        en el HTML del listado) -- para esos, no hay endpoint fiable de
+        detalle por ID, y no se intenta adivinar una URL de página de
+        producto individual sin verificarla contra HTML real de cada
+        tienda. Se devuelve "not_supported" en vez de arriesgar un refresco
+        silenciosamente incorrecto."""
+        if not store_sku:
+            return RefreshOutcome(
+                status="not_supported",
+                error="sin store_sku (producto descubierto por fallback HTML, sin id_product fiable)",
+            )
+
+        session = build_session(anti_bot=False, config=config)
+        session.headers["Accept"] = "application/json"
+        url = f"{config.domain}/wp-json/wc/store/v1/products/{store_sku}"
+        resp = request_with_retries(session, url, headers=conditional_headers(etag, last_modified))
+
+        if resp is None:
+            return RefreshOutcome(status="error", error="fallo de red irrecuperable")
+        if resp.status_code == 304:
+            return RefreshOutcome(status="not_modified")
+        if resp.status_code != 200:
+            return RefreshOutcome(status="error", error=f"status {resp.status_code}")
+
+        try:
+            item = resp.json()
+        except ValueError:
+            return RefreshOutcome(status="error", error="respuesta no es JSON válido")
+
+        prices = item.get("prices") or {}
+        minor_unit = int(prices.get("currency_minor_unit", 2) or 2)
+        disponible = item.get("is_in_stock")
+        if disponible is None:
+            disponible = item.get("stock_status") == "instock"
+
+        return RefreshOutcome(
+            status="modified",
+            variants=[RefreshedVariant(
+                variant=None,
+                price=parse_price_minor_unit(prices.get("price"), minor_unit),
+                stock_status="DISPONIBLE" if disponible else "AGOTADO",
+                name=item.get("name"),
+            )],
+            etag=resp.headers.get("ETag"),
+            last_modified=resp.headers.get("Last-Modified"),
+        )
 
     # -- Store API ----------------------------------------------------------
 
