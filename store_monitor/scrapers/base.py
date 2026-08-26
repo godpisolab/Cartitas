@@ -1,0 +1,52 @@
+"""Interfaz común de scraper, compartida por todas las plataformas."""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import Optional
+
+from base_script import DEFAULT_DELAY, Product, StoreConfig, StoreLogger, classify_product
+
+
+class BaseStoreScraper(ABC):
+    """Cada subclase implementa scrape() y devuelve List[Product] ya
+    normalizados y clasificados. El dispatcher no necesita saber nada de las
+    diferencias entre plataformas."""
+
+    def __init__(self, config: StoreConfig, logger: StoreLogger, delay: float = DEFAULT_DELAY):
+        """delay es la pausa entre páginas/productos de ESTA tienda (no
+        afecta a las demás, que corren en paralelo en su propio hilo)."""
+        self.config = config
+        self.logger = logger
+        self.delay = delay
+
+    @abstractmethod
+    def scrape(self) -> list[Product]:
+        """Recorre la tienda y devuelve todos los productos en scope, ya
+        normalizados. Cada subclase decide cómo (JSON público, Store API,
+        HTML, JSON-LD...) -- ver el módulo de cada plataforma en scrapers/."""
+        ...
+
+    def _make_product(self, *, id_product, name, price, stock_status, url, sku,
+                       image_url, variant_title: Optional[str] = None) -> Product:
+        """Clasifica (classify_product) y empaqueta los campos crudos de un
+        producto en un Product normalizado -- todas las subclases pasan por
+        aquí en vez de construir Product a mano, así la clasificación nunca
+        se les olvida."""
+        c = classify_product(name, variant_title)
+        return Product(
+            store=self.config.label,
+            platform=self.config.platform.value,
+            id_product=id_product,
+            name=name,
+            variant=variant_title,
+            product_type=c.product_type,
+            main_set=c.main_set,
+            set_code=c.set_code,
+            language=c.language,
+            price=price,
+            stock_status=stock_status,
+            url=url,
+            sku=sku,
+            image_url=image_url,
+        )
