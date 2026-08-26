@@ -5,8 +5,8 @@ from __future__ import annotations
 import time
 from typing import Optional
 
-from classify import parse_price_text
-from domain import Product, RefreshedVariant, RefreshOutcome, StoreConfig
+from shared.classify import parse_price_text
+from shared.domain import Product, RefreshedVariant, RefreshOutcome, StoreConfig
 from http_client import build_session, conditional_headers, request_with_retries
 from scrapers.base import BaseStoreScraper
 

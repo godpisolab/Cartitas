@@ -36,32 +36,16 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Optional
 
-from classify import classify_product
-from domain import Classification
+from shared.classify import (
+    NOT_APPLICABLE_PRODUCT_TYPES,
+    PRODUCT_TYPE_TO_CATEGORY_SLUG,
+    classify_product,
+    classify_with_category,
+)
+from shared.domain import Classification
 
 CONFIRMED_SIMILARITY_THRESHOLD = 0.6
 REVIEW_SIMILARITY_THRESHOLD = 0.35
-
-# Mapea Classification.product_type (classify.CLASSIFICATION_RULES) a
-# category.slug (D.2 -- los 13 tipos reales, sembrados por
-# seed-catalog-app-tcg.sql). LOTE_CARTAS y OTROS quedan fuera a propósito,
-# ver NOT_APPLICABLE_PRODUCT_TYPES.
-PRODUCT_TYPE_TO_CATEGORY_SLUG = {
-    "BOOSTER_BOX": "booster-box",
-    "BOOSTER_PACK": "booster-pack",
-    "STARTER_DECK": "starter-deck",
-    "ILLUSTRATION_BOX": "illustration-box",
-    "PREMIUM_COLLECTION": "premium-collection",
-    "DOUBLE_PACK": "double-pack",
-    "MYSTERY_PACK": "mystery-pack",
-    "DEVIL_FRUITS_COLLECTION": "devil-fruits-collection",
-    "LEARN_DECK": "learn-deck",
-    "PROMO_CARD": "promo-card",
-    "PLAYMAT": "playmat",
-    "DICE_ACCESSORY": "dice-accessory",
-}
-
-NOT_APPLICABLE_PRODUCT_TYPES = {"LOTE_CARTAS", "OTROS"}
 
 
 @dataclass
@@ -94,11 +78,12 @@ def _best_candidate(cur, category_id: int, raw_name: str):
     return cur.fetchone()
 
 
-def _evaluate(cur, category_ids: dict[str, int], classification: Classification, raw_name: str) -> MatchOutcome:
+def _evaluate(
+    cur, category_ids: dict[str, int], classification: Classification, category_slug: Optional[str], raw_name: str,
+) -> MatchOutcome:
     if classification.product_type in NOT_APPLICABLE_PRODUCT_TYPES:
         return MatchOutcome("not_applicable", None, None)
 
-    category_slug = PRODUCT_TYPE_TO_CATEGORY_SLUG.get(classification.product_type)
     category_id = category_ids.get(category_slug) if category_slug else None
     if category_id is None:
         # product_type reconocido por classify_product() pero sin categoría
@@ -151,8 +136,8 @@ def run_matching(conn) -> dict[str, int]:
         rows = cur.fetchall()
 
         for store_product_id, raw_name, raw_variant in rows:
-            classification = classify_product(raw_name, raw_variant)
-            outcome = _evaluate(cur, category_ids, classification, raw_name)
+            classification, category_slug = classify_with_category(raw_name, raw_variant)
+            outcome = _evaluate(cur, category_ids, classification, category_slug, raw_name)
             cur.execute(
                 """
                 UPDATE store_product

@@ -47,10 +47,16 @@ jobs:
             store_monitor/requirements.txt
             store_monitor/requirements-dev.txt
 
+      # working-directory, no rutas "store_monitor/requirements.txt" desde la
+      # raíz: requirements.txt declara `-e ../shared`, y pip resuelve rutas
+      # relativas de -e contra el directorio DESDE el que se invoca pip, no
+      # contra la ubicación del propio requirements.txt -- sin esto, `../shared`
+      # apuntaría fuera del repo.
       - name: Instalar dependencias
+        working-directory: store_monitor
         run: |
-          pip install -r store_monitor/requirements.txt
-          pip install -r store_monitor/requirements-dev.txt
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
       # Mismo procedimiento que describe el docstring de tests/conftest.py
       # para levantarlo a mano en local -- aquí automatizado. El healthcheck
@@ -133,10 +139,13 @@ jobs:
             api/requirements.txt
             api/requirements-dev.txt
 
+      # Mismo motivo que en el job del scraper: api/requirements.txt declara
+      # `-e ../shared`, resuelto por pip contra el directorio de invocación.
       - name: Instalar dependencias
+        working-directory: api
         run: |
-          pip install -r api/requirements.txt
-          pip install -r api/requirements-dev.txt
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
       - name: Aplicar esquema y seed a cartitas_test
         env:

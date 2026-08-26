@@ -6,7 +6,7 @@ más: añadir una tienda nueva no debería requerir abrir ningún otro módulo.
 
 from __future__ import annotations
 
-from domain import Platform, StoreConfig
+from shared.domain import Platform, StoreConfig
 
 # A.1 (estándares de scraping): UA propio e identificable, con URL de
 # contacto -- en vez de imitar un navegador. Se evita a propósito nombrar el

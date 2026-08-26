@@ -1,3 +1,4 @@
+-e ../shared
 cloudscraper
 requests
 beautifulsoup4

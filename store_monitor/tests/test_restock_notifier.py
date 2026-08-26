@@ -13,7 +13,7 @@ from pywebpush import WebPushException
 
 import persistence
 import restock_notifier
-from domain import Platform, Product, StoreConfig
+from shared.domain import Platform, Product, StoreConfig
 
 
 def make_config(label="Tienda", domain="https://tienda.example"):

@@ -11,7 +11,7 @@ import pytest
 from freezegun import freeze_time
 
 import persistence
-from domain import Platform, Product, StoreConfig
+from shared.domain import Platform, Product, StoreConfig
 
 
 def make_config(label="Tienda", domain="https://tienda.example", platform=Platform.SHOPIFY):

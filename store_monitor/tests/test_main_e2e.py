@@ -12,7 +12,7 @@ import os
 import pytest
 
 import base_script
-from domain import Platform, StoreConfig
+from shared.domain import Platform, StoreConfig
 
 
 @pytest.fixture(autouse=True)

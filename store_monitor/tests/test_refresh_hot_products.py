@@ -11,7 +11,7 @@ from datetime import date, timedelta
 from unittest.mock import MagicMock
 
 import persistence
-from domain import Platform, Product, RefreshedVariant, RefreshOutcome, StoreConfig
+from shared.domain import Platform, Product, RefreshedVariant, RefreshOutcome, StoreConfig
 
 
 def make_config(label="Tienda", domain="https://tienda.example"):

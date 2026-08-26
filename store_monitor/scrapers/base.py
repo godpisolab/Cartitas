@@ -5,8 +5,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from classify import classify_product
-from domain import Product, RefreshOutcome, StoreConfig
+from shared.classify import classify_product
+from shared.domain import Product, RefreshOutcome, StoreConfig
 from http_client import DEFAULT_DELAY, StoreLogger
 
 

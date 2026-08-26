@@ -2,7 +2,10 @@
 del proyecto -- la capa más baja (ver docs/estandares_organizacion_codigo.md,
 sección 2). Todo lo demás (config, clasificación, HTTP, persistencia,
 dispatcher, scrapers) depende de esto; esto no depende de nada de ellos.
-"""
+
+Vive en shared/ (no en store_monitor/) porque tanto store_monitor/ como
+api/ lo necesitan -- ver decisión de arquitectura sobre el acoplamiento
+entre ambos servicios (patrón Shared Kernel de DDD)."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-from domain import Platform
+from shared.domain import Platform
 
 from scrapers.base import BaseStoreScraper
 from scrapers.generic_jsonld import GenericJsonLdScraper

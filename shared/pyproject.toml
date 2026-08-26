@@ -1,0 +1,10 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shared"
+version = "0.1.0"
+description = "Shared Kernel (DDD): dominio y reglas de clasificación puras, sin dependencias de terceros, compartidas por api/ y store_monitor/."
+requires-python = ">=3.11"
+dependencies = []

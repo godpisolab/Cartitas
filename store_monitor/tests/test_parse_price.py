@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from classify import parse_price_minor_unit, parse_price_text
+from shared.classify import parse_price_minor_unit, parse_price_text
 
 
 class TestParsePriceText:

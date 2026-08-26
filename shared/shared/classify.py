@@ -1,7 +1,12 @@
 """Lógica de negocio pura: clasificación de producto y parseo de precios.
 Sin red, sin BBDD, sin logging con estado -- solo funciones de texto sobre
-datos ya en memoria, compartidas por el scraper, el matcher (bloque C) y la
-siembra del catálogo oficial (seed_official_catalog.py).
+datos ya en memoria, compartidas por el scraper, el matcher (bloque C), la
+siembra del catálogo oficial (seed_official_catalog.py) y el panel de
+matching de api/ (services/matches.py).
+
+Vive en shared/ (no en store_monitor/) por el mismo motivo que domain.py --
+ver decisión de arquitectura sobre el acoplamiento entre api/ y
+store_monitor/ (patrón Shared Kernel de DDD).
 """
 
 from __future__ import annotations
@@ -9,7 +14,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from domain import Classification
+from .domain import Classification
 
 CLASSIFICATION_RULES = [
     # "ultra deck" añadido tras sembrar el catálogo oficial de Bandai (ST-10
@@ -31,6 +36,27 @@ CLASSIFICATION_RULES = [
     ("BOOSTER_BOX", ["booster box", "caja de sobres", "caja one piece", "caja"]),
     ("BOOSTER_PACK", ["booster", "sobre "]),
 ]
+
+# Mapea Classification.product_type (CLASSIFICATION_RULES de arriba) a
+# category.slug (D.2 -- los 13 tipos reales, sembrados por
+# seed-catalog-app-tcg.sql). LOTE_CARTAS y OTROS quedan fuera a propósito,
+# ver NOT_APPLICABLE_PRODUCT_TYPES.
+PRODUCT_TYPE_TO_CATEGORY_SLUG = {
+    "BOOSTER_BOX": "booster-box",
+    "BOOSTER_PACK": "booster-pack",
+    "STARTER_DECK": "starter-deck",
+    "ILLUSTRATION_BOX": "illustration-box",
+    "PREMIUM_COLLECTION": "premium-collection",
+    "DOUBLE_PACK": "double-pack",
+    "MYSTERY_PACK": "mystery-pack",
+    "DEVIL_FRUITS_COLLECTION": "devil-fruits-collection",
+    "LEARN_DECK": "learn-deck",
+    "PROMO_CARD": "promo-card",
+    "PLAYMAT": "playmat",
+    "DICE_ACCESSORY": "dice-accessory",
+}
+
+NOT_APPLICABLE_PRODUCT_TYPES = {"LOTE_CARTAS", "OTROS"}
 
 
 def _detect_language(text: Optional[str]) -> Optional[str]:
@@ -81,6 +107,24 @@ def classify_product(name: Optional[str], variant_title: Optional[str] = None) -
         language = _detect_language(variant_title)
 
     return Classification(product_type, set_code, language, main_set)
+
+
+def classify_with_category(name: Optional[str], variant_title: Optional[str] = None) -> tuple[Classification, Optional[str]]:
+    """Combina classify_product() con el mapeo a category.slug en una única
+    llamada. Existe porque `classify_product(...)` seguido de
+    `PRODUCT_TYPE_TO_CATEGORY_SLUG.get(classification.product_type)` se
+    encontró duplicado, idéntico, en matcher._evaluate() y en
+    api/services/matches.py::_candidates_for() -- cualquier llamador que
+    tenga un raw_name/raw_variant y necesite la categoría debería usar esta
+    función en vez de rehacer la combinación a mano.
+
+    Devuelve (classification, None) si el product_type no tiene categoría
+    sembrada -- incluye tanto NOT_APPLICABLE_PRODUCT_TYPES (LOTE_CARTAS,
+    OTROS, fuera de PRODUCT_TYPE_TO_CATEGORY_SLUG a propósito) como
+    cualquier product_type reconocido pero aún sin categoría en D.2."""
+    classification = classify_product(name, variant_title)
+    category_slug = PRODUCT_TYPE_TO_CATEGORY_SLUG.get(classification.product_type)
+    return classification, category_slug
 
 
 def parse_price_text(text) -> Optional[float]:

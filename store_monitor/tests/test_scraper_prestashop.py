@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from domain import Platform, StoreConfig
+from shared.domain import Platform, StoreConfig
 from http_client import StoreLogger
 from scrapers.prestashop import PrestaShopScraper
 

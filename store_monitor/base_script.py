@@ -21,7 +21,7 @@ import persistence
 import restock_notifier
 from config import FAILED_STORES_CSV, OUTPUT_CSV, STORES
 from dispatcher import run_all_stores
-from domain import CSV_FIELDNAMES, Product
+from shared.domain import CSV_FIELDNAMES, Product
 
 
 def write_products_csv(products: list[Product], path: str = OUTPUT_CSV) -> None:

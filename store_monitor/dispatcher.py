@@ -20,7 +20,7 @@ import requests
 
 import store_state
 from config import STORES
-from domain import Platform, Product, StoreConfig
+from shared.domain import Platform, Product, StoreConfig
 from http_client import DEFAULT_DELAY, DEFAULT_TIMEOUT, StoreLogger, build_session
 from scrapers import SCRAPER_CLASSES
 

@@ -3,6 +3,7 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+*.egg-info/
 
 # Estado runtime del scraper -- no es código, se regenera solo
 store_monitor/multi_tienda_one_piece.csv

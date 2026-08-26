@@ -10,6 +10,8 @@ Estado actual: toda la superficie de `docs/api-endpoints-v1.md` + `docs/api-endp
 pip install -r requirements.txt
 ```
 
+`requirements.txt` incluye `-e ../shared` (dominio + clasificación compartidos con `store_monitor/`, ver sección "Arquitectura" más abajo) -- necesita que `shared/` exista como carpeta hermana de `api/`, igual que ya asumía el resto del repo.
+
 Requiere el mismo Postgres que `store_monitor/` (ver `docker_composes/docker-compose.yml` en la raíz del repo) -- comparten esquema y datos, no hay una BBDD propia de la API.
 
 ## Configuración
@@ -47,7 +49,7 @@ main.py (junta routers, registra el exception handler, CORS)
 - `auth.py` -- `require_scope(scope)`, enganchado por `Depends()` en cada router.
 - `errors.py` -- excepciones de dominio (`NotFoundError`, `ConflictError`...) + su mapeo único a `application/problem+json` (RFC 7807).
 - `pagination.py` -- envelope `{data, meta}` + `Link` header (RFC 8288), compartido por todo listado.
-- `_store_monitor_bridge.py` -- puente ESTRECHO y documentado hacia `store_monitor/classify.py`/`matcher.py` (Python puro, sin dependencias de terceros) para que `GET /matches` derive la categoría de un `raw_name` con la MISMA lógica que ya usa `matcher.run_matching()`, sin arrastrar `cloudscraper`/`pybreaker`/el resto de dependencias del scraper. Usa `sys.path.append()` (nunca `insert(0, ...)`) precisamente porque ambos paquetes tienen su propio `config.py` -- ver el docstring del fichero para el razonamiento completo.
+- `services/matches.py` depende de `shared` (`from shared.classify import ...`) -- paquete instalable hermano de `api/` y `store_monitor/` (`../shared`, ver su `pyproject.toml`) que contiene solo dominio + reglas de clasificación puras, sin dependencias de terceros. Es una dependencia real declarada en `requirements.txt` (Shared Kernel de DDD), no un `sys.path` hack: así `GET /matches` deriva la categoría de un `raw_name` con la MISMA lógica que `matcher.run_matching()` sin arrastrar `cloudscraper`/`pybreaker`/el resto de dependencias del scraper.
 
 **Regla que se mantiene al añadir el siguiente endpoint:** un router nunca contiene un `select`/regla de negocio inline -- eso vive en `services/`, testeable sin FastAPI ni `TestClient`.
 

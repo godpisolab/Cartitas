@@ -29,7 +29,7 @@ import cloudscraper
 import requests
 
 from config import BROWSER_LIKE_USER_AGENT, IDENTIFIABLE_USER_AGENT
-from domain import StoreConfig
+from shared.domain import StoreConfig
 
 DEFAULT_DELAY = 1.0        # pausa entre páginas de una misma tienda
 DEFAULT_TIMEOUT = 30       # timeout de socket por petición HTTP (verificado 2026-08-25:

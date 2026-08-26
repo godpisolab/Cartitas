@@ -56,15 +56,17 @@ Tarda entre 2 y 3 minutos las 56 tiendas (las que usan `Platform.ODOO` o `Platfo
 Refactorizado (2026-08-26, ver `docs/estandares_organizacion_codigo.md`) en capas de dependencia unidireccional -- cada módulo solo depende de los de su izquierda, nunca al revés, así que ya no hace falta ningún import diferido dentro de una función para evitar un ciclo:
 
 ```
-domain.py → config.py → classify.py → persistence.py → store_state.py → http_client.py → dispatcher.py → scrapers/ → base_script.py
+shared/(domain.py, classify.py) → config.py → persistence.py → store_state.py → http_client.py → dispatcher.py → scrapers/ → base_script.py
 ```
 
+`domain.py` y `classify.py` viven en el paquete hermano `shared/` (no aquí dentro), porque `api/` también los necesita -- Shared Kernel de DDD, ver decisión de arquitectura sobre el acoplamiento entre `api/` y `store_monitor/`. `store_monitor/requirements.txt` declara `shared` como dependencia editable (`-e ../shared`).
+
 ```
-domain.py         -- Platform (enum), StoreConfig, Product, Classification, RefreshedVariant,
+shared/domain.py  -- Platform (enum), StoreConfig, Product, Classification, RefreshedVariant,
                       RefreshOutcome: dataclasses puros, cero imports internos del proyecto.
 config.py         -- STORES (las 56 tiendas configuradas), IDENTIFIABLE_USER_AGENT y demás
                       constantes de identidad HTTP (A.1), OUTPUT_CSV/FAILED_STORES_CSV.
-classify.py       -- classify_product() / _detect_language() (deduce tipo/set/idioma del
+shared/classify.py -- classify_product() / _detect_language() (deduce tipo/set/idioma del
                       nombre), parse_price_text() / parse_price_minor_unit(). Lógica pura,
                       sin red ni BBDD.
 http_client.py    -- build_session() / request_with_retries() (reintentos + backoff + A.3/A.4),
@@ -88,7 +90,7 @@ scrapers/
 └── generic_jsonld.py   -- listado configurable + JSON-LD por producto (CMS a medida)
 ```
 
-**Por qué está separado así:** cada capa tiene una única responsabilidad y solo puede depender de las capas por debajo de ella (ver la regla completa en `docs/estandares_organizacion_codigo.md`, sección 2) -- añadir una tienda solo toca `config.py`, cambiar cómo se reintenta una petición solo toca `http_client.py`, etc. `scrapers/` tiene un archivo por plataforma, cada uno con la lógica específica de cómo esa plataforma expone su catálogo; un scraper nuevo solo necesita implementar `scrape() -> list[Product]` y depende únicamente de `domain.py`/`http_client.py`/`classify.py`, nunca del dispatcher.
+**Por qué está separado así:** cada capa tiene una única responsabilidad y solo puede depender de las capas por debajo de ella (ver la regla completa en `docs/estandares_organizacion_codigo.md`, sección 2) -- añadir una tienda solo toca `config.py`, cambiar cómo se reintenta una petición solo toca `http_client.py`, etc. `scrapers/` tiene un archivo por plataforma, cada uno con la lógica específica de cómo esa plataforma expone su catálogo; un scraper nuevo solo necesita implementar `scrape() -> list[Product]` y depende únicamente de `shared.domain`/`http_client.py`/`shared.classify`, nunca del dispatcher.
 
 ### El flujo de una tienda
 
@@ -155,7 +157,7 @@ El parser de JSON-LD contempla variaciones reales encontradas: `@type` en minús
 
 ## Cómo añadir una tienda nueva
 
-Añade una entrada a `STORES` en `config.py` con el campo correspondiente a su plataforma. `StoreConfig.__post_init__` (en `domain.py`) falla con un mensaje claro si falta algo imprescindible — esto es intencional, es la corrección estructural de un bug real que tuvo este proyecto (una tienda WooCommerce sin categoría bien acotada acabó trayéndose todo el catálogo de la tienda, no solo One Piece).
+Añade una entrada a `STORES` en `config.py` con el campo correspondiente a su plataforma. `StoreConfig.__post_init__` (en `shared/domain.py`) falla con un mensaje claro si falta algo imprescindible — esto es intencional, es la corrección estructural de un bug real que tuvo este proyecto (una tienda WooCommerce sin categoría bien acotada acabó trayéndose todo el catálogo de la tienda, no solo One Piece).
 
 ```python
 # Shopify
@@ -376,10 +378,8 @@ Documentadas directamente en los comentarios de `STORES` (bloque "Pendientes" al
 ```
 store_monitor/
 ├── README.md
-├── requirements.txt
-├── domain.py             -- dataclasses/enum puros (Platform, StoreConfig, Product, Classification...)
+├── requirements.txt      -- incluye `-e ../shared` (domain.py/classify.py, ver ../shared/)
 ├── config.py             -- STORES (56 tiendas) + constantes de identidad HTTP (A.1)
-├── classify.py           -- classify_product(), parse_price_text()/parse_price_minor_unit()
 ├── http_client.py        -- build_session(), request_with_retries(), StoreLogger, conditional_headers()
 ├── dispatcher.py         -- scrape_store()/query_store()/run_all_stores(), robots.txt, circuit breaker
 ├── base_script.py        -- entry point (`python base_script.py`): batch completo + CSV + main()

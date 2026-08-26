@@ -6,7 +6,7 @@ función de mapeo, barata de cubrir del todo y con riesgo real si se rompe
 from __future__ import annotations
 
 import dispatcher
-from domain import Platform, StoreConfig
+from shared.domain import Platform, StoreConfig
 
 
 class TestRobotsCheckTarget:

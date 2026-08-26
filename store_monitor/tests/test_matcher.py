@@ -16,7 +16,7 @@ YA estaba construido cuando se escribió el plan (bloque C, hecho el
 from __future__ import annotations
 
 import matcher
-from domain import Classification
+from shared.domain import Classification
 
 
 def make_classification(product_type="BOOSTER_BOX", set_code="OP11", language="EN", main_set="OP11"):
@@ -48,7 +48,7 @@ class TestUmbralesDeConfianza:
         category_id = seed_category(db_conn)
         stub_candidate(monkeypatch, main_set="OP11", language="EN", score=0.75)
         with db_conn.cursor() as cur:
-            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "raw name")
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "booster-box", "raw name")
         assert outcome.match_status == "confirmed"
         assert outcome.match_confidence == 0.75
 
@@ -56,7 +56,7 @@ class TestUmbralesDeConfianza:
         category_id = seed_category(db_conn)
         stub_candidate(monkeypatch, score=0.61)
         with db_conn.cursor() as cur:
-            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "raw name")
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "booster-box", "raw name")
         assert outcome.match_status == "confirmed"
 
     def test_coincide_todo_similarity_060_justo_en_el_corte_NO_confirma(self, db_conn, monkeypatch):
@@ -66,14 +66,14 @@ class TestUmbralesDeConfianza:
         category_id = seed_category(db_conn)
         stub_candidate(monkeypatch, score=0.60)
         with db_conn.cursor() as cur:
-            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "raw name")
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "booster-box", "raw name")
         assert outcome.match_status == "needs_review"
 
     def test_coincide_todo_similarity_045_needs_review(self, db_conn, monkeypatch):
         category_id = seed_category(db_conn)
         stub_candidate(monkeypatch, score=0.45)
         with db_conn.cursor() as cur:
-            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "raw name")
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "booster-box", "raw name")
         assert outcome.match_status == "needs_review"
 
     def test_idioma_no_coincide_degrada_a_needs_review_aunque_similarity_sea_alta(self, db_conn, monkeypatch):
@@ -81,7 +81,7 @@ class TestUmbralesDeConfianza:
         stub_candidate(monkeypatch, main_set="OP11", language="JP", score=0.90)  # candidato en JP
         classification = make_classification(language="EN")  # pero el raw_name se detectó como EN
         with db_conn.cursor() as cur:
-            outcome = matcher._evaluate(cur, {"booster-box": category_id}, classification, "raw name")
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, classification, "booster-box", "raw name")
         assert outcome.match_status == "needs_review"
 
     def test_idioma_no_detectado_tambien_degrada_a_needs_review(self, db_conn, monkeypatch):
@@ -89,14 +89,14 @@ class TestUmbralesDeConfianza:
         stub_candidate(monkeypatch, main_set="OP11", language="EN", score=0.90)
         classification = make_classification(language=None)  # no se detectó idioma en el raw_name
         with db_conn.cursor() as cur:
-            outcome = matcher._evaluate(cur, {"booster-box": category_id}, classification, "raw name")
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, classification, "booster-box", "raw name")
         assert outcome.match_status == "needs_review"
 
     def test_similarity_034_unmatched(self, db_conn, monkeypatch):
         category_id = seed_category(db_conn)
         stub_candidate(monkeypatch, score=0.34)
         with db_conn.cursor() as cur:
-            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "raw name")
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "booster-box", "raw name")
         assert outcome.match_status == "unmatched"
 
     def test_similarity_035_justo_en_el_corte_no_es_unmatched_por_ese_motivo(self, db_conn, monkeypatch):
@@ -106,7 +106,7 @@ class TestUmbralesDeConfianza:
         category_id = seed_category(db_conn)
         stub_candidate(monkeypatch, main_set="OP11", language="EN", score=0.35)
         with db_conn.cursor() as cur:
-            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "raw name")
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "booster-box", "raw name")
         assert outcome.match_status == "needs_review"
 
     def test_main_set_no_coincide_es_unmatched_pese_a_similarity_alta(self, db_conn, monkeypatch):
@@ -116,7 +116,7 @@ class TestUmbralesDeConfianza:
         stub_candidate(monkeypatch, main_set="OP99", language="EN", score=0.90)
         classification = make_classification(main_set="OP11")  # el raw_name es de OP11
         with db_conn.cursor() as cur:
-            outcome = matcher._evaluate(cur, {"booster-box": category_id}, classification, "raw name")
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, classification, "booster-box", "raw name")
         assert outcome.match_status == "unmatched"
         assert outcome.product_id is None
 
@@ -124,7 +124,7 @@ class TestUmbralesDeConfianza:
         category_id = seed_category(db_conn)
         stub_candidate(monkeypatch, score=None)  # _best_candidate no encuentra nada
         with db_conn.cursor() as cur:
-            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "raw name")
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "booster-box", "raw name")
         assert outcome.match_status == "unmatched"
 
 
@@ -141,7 +141,7 @@ class TestExclusionNotApplicable:
         stub_candidate(monkeypatch, score=0.99)
         classification = make_classification(product_type="LOTE_CARTAS")
         with db_conn.cursor() as cur:
-            outcome = matcher._evaluate(cur, {"booster-box": category_id}, classification, "lote de cartas")
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, classification, None, "lote de cartas")
         assert outcome.match_status == "not_applicable"
 
     def test_otros_es_not_applicable(self, db_conn, monkeypatch):
@@ -149,7 +149,7 @@ class TestExclusionNotApplicable:
         stub_candidate(monkeypatch, score=0.99)
         classification = make_classification(product_type="OTROS")
         with db_conn.cursor() as cur:
-            outcome = matcher._evaluate(cur, {"booster-box": category_id}, classification, "cualquier cosa")
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, classification, None, "cualquier cosa")
         assert outcome.match_status == "not_applicable"
 
 
@@ -160,7 +160,7 @@ class TestExclusionNotApplicable:
 class TestRunMatchingEndToEnd:
     def _seed_store_product(self, conn, raw_name, store_label="Tienda"):
         import persistence
-        from domain import Platform, Product, StoreConfig
+        from shared.domain import Platform, Product, StoreConfig
         cfg = StoreConfig(store_label, f"https://{store_label.lower()}.example", Platform.SHOPIFY,
                            shopify_collection="x")
         store_ids = persistence.sync_stores(conn, [cfg])
@@ -230,7 +230,7 @@ class TestRunMatchingEndToEnd:
 class TestFindMissingCanonicalCandidates:
     def _seed_store_product(self, conn, raw_name, store_label):
         import persistence
-        from domain import Platform, Product, StoreConfig
+        from shared.domain import Platform, Product, StoreConfig
         cfg = StoreConfig(store_label, f"https://{store_label.lower()}.example", Platform.SHOPIFY,
                            shopify_collection="x")
         store_ids = persistence.sync_stores(conn, [cfg])

@@ -17,7 +17,7 @@ import pytest
 
 import dispatcher
 import store_state
-from domain import Platform, StoreConfig
+from shared.domain import Platform, StoreConfig
 from http_client import StoreLogger
 
 

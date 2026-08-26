@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from classify import classify_product, _detect_language
+from shared.classify import classify_product, classify_with_category, _detect_language
 
 
 class TestClassifyProductTable:
@@ -169,3 +169,24 @@ class TestMainSetDigitBoundary:
         result = classify_product("Starter Deck ST-100")
         assert result.set_code == "ST100"
         assert result.main_set is None
+
+
+class TestClassifyWithCategory:
+    """classify_with_category() combina classify_product() con el mapeo a
+    category.slug -- existe para que api/services/matches.py y matcher.py
+    no repitan `PRODUCT_TYPE_TO_CATEGORY_SLUG.get(classification.product_type)`
+    cada uno por su lado (ver decisión de arquitectura sobre shared/)."""
+
+    def test_product_type_con_categoria_sembrada_devuelve_su_slug(self):
+        classification, category_slug = classify_with_category("Booster Box OP-16")
+        assert classification.product_type == "BOOSTER_BOX"
+        assert category_slug == "booster-box"
+
+    def test_not_applicable_product_type_devuelve_slug_none(self):
+        classification, category_slug = classify_with_category("Lote 50 cartas sueltas")
+        assert classification.product_type == "LOTE_CARTAS"
+        assert category_slug is None
+
+    def test_variant_title_se_propaga_igual_que_en_classify_product(self):
+        classification, _ = classify_with_category("One Piece TCG", "Inglés")
+        assert classification.language == "EN"

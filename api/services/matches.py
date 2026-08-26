@@ -26,7 +26,12 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
-from _store_monitor_bridge import NOT_APPLICABLE_PRODUCT_TYPES, PRODUCT_TYPE_TO_CATEGORY_SLUG, classify_product
+from shared.classify import (
+    NOT_APPLICABLE_PRODUCT_TYPES,
+    PRODUCT_TYPE_TO_CATEGORY_SLUG,
+    classify_product,
+    classify_with_category,
+)
 from errors import ConflictError, NotFoundError, UnprocessableEntityError
 from models.category import Category
 from models.product import Product
@@ -68,8 +73,7 @@ def _top_candidates(session: Session, category_id: int | None, raw_name: str) ->
 
 
 def _candidates_for(session: Session, raw_name: str, raw_variant: str | None) -> list[MatchCandidate]:
-    classification = classify_product(raw_name, raw_variant)
-    category_slug = PRODUCT_TYPE_TO_CATEGORY_SLUG.get(classification.product_type)
+    _classification, category_slug = classify_with_category(raw_name, raw_variant)
     category_id = _category_id_for_slug(session, category_slug)
     return _top_candidates(session, category_id, raw_name)
 

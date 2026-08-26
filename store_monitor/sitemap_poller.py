@@ -26,7 +26,7 @@ import xml.etree.ElementTree as ET
 from datetime import date
 
 import persistence
-from domain import Product, StoreConfig
+from shared.domain import Product, StoreConfig
 from http_client import build_session, request_with_retries
 from scrapers import SCRAPER_CLASSES
 
