@@ -16,7 +16,7 @@ class ShopifyScraper(BaseStoreScraper):
     def scrape(self) -> list[Product]:
         """Pagina products.json (limit=250) hasta que una página viene vacía
         -- shopify_collection es el handle configurado en StoreConfig."""
-        session = build_session(anti_bot=False)
+        session = build_session(anti_bot=False, config=self.config)
         products: list[Product] = []
         page = 1
 

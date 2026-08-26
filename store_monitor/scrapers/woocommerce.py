@@ -66,7 +66,7 @@ class WooCommerceScraper(BaseStoreScraper):
         Devuelve None si NINGUNO respondió (API no disponible de verdad),
         o la lista de productos (posiblemente vacía) del primero que sí
         respondió -- ver scrape() para por qué [] no se trata igual que None."""
-        session = build_session(anti_bot=False)
+        session = build_session(anti_bot=False, config=self.config)
         session.headers["Accept"] = "application/json"
         category_slug = self.config.woocommerce_category_slug
         name_must_include = self.config.woocommerce_name_must_include
@@ -223,7 +223,7 @@ class WooCommerceScraper(BaseStoreScraper):
         "siguiente página" en vez de construir la URL a mano -- distintas
         tiendas paginan de forma distinta. Aplica name_must_include como
         post-filtro si está configurado (misma lógica que en la Store API)."""
-        session = build_session(anti_bot=True)
+        session = build_session(anti_bot=True, config=self.config)
         self.logger.log("iniciando sesión anti-bot (cloudscraper) para el fallback HTML...")
         products: list[Product] = []
         name_must_include = self.config.woocommerce_name_must_include

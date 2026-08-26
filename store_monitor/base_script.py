@@ -52,17 +52,22 @@ import sys
 sys.modules.setdefault("base_script", sys.modules[__name__])
 
 import csv
+import email.utils
 import random
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Callable, Optional
+from urllib.robotparser import RobotFileParser
 
 import cloudscraper
 import pybreaker
 import requests
+
+import store_state
 
 
 # ===========================================================================
@@ -96,10 +101,40 @@ RETRY_BACKOFF_BASE = 1.6   # base del backoff exponencial
 BREAKER_FAIL_MAX = 3
 BREAKER_RESET_TIMEOUT = 300
 
-DEFAULT_USER_AGENT = (
+# A.1 (estándares de scraping): UA propio e identificable, con URL de
+# contacto -- en vez de imitar un navegador. Se evita a propósito nombrar el
+# producto "Bot"/"Crawler"/"Spider": algunos filtros anti-bot simples
+# bloquean por coincidencia de esas palabras en el User-Agent, y cambiarlo a
+# ciegas podría romper tiendas que hoy funcionan. Es identificable y
+# rastreable (nombre + contacto) sin activar los filtros más ingenuos.
+BOT_CONTACT_URL = "https://TODO-dominio-cartitas.example/bot-info"
+# TODO(Ruben): sustituir por la URL de contacto real en cuanto exista un dominio.
+IDENTIFIABLE_USER_AGENT = f"CartitasPriceWatch/1.0 (+{BOT_CONTACT_URL})"
+
+# UA que imita Chrome real -- NO es el comportamiento por defecto. Solo para
+# tiendas marcadas como excepción documentada (StoreConfig.ua_exception=True)
+# tras confirmar que bloquean el UA identificable de arriba (ver A.1): la
+# excepción es por tienda y queda anotada en su StoreConfig, no un revert
+# global a mentir sobre el UA por una tienda puntual.
+BROWSER_LIKE_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
+
+# A.3: tope máximo de espera si un servidor pide un Retry-After absurdo (mal
+# configurado u hostil) -- no se bloquea el proceso completo esperando, se
+# corta ahí y se trata como fallo normal de esa tienda en este ciclo.
+MAX_RETRY_AFTER_WAIT = 300  # 5 minutos
+
+# A.2: cada cuánto se refresca la caché de robots.txt por tienda -- cambia
+# poco, comprobarlo una vez por semana es razonable (no en cada scrape).
+ROBOTS_CACHE_TTL_SECONDS = 7 * 24 * 3600
+
+# A.3: al tercer fallo seguido ENTRE EJECUCIONES (ver store_state.py), se
+# fija un backoff que también respeta el siguiente ciclo de scraping, no
+# solo los reintentos de la ejecución actual.
+STORE_BACKOFF_FAILURE_THRESHOLD = 3
+STORE_BACKOFF_DEFAULT_SECONDS = 1800  # 30 min de cooldown si el servidor no dio su propio Retry-After
 
 OUTPUT_CSV = "multi_tienda_one_piece.csv"
 FAILED_STORES_CSV = "tiendas_fallidas.csv"
@@ -180,6 +215,12 @@ class StoreConfig:
     # páginas de listado.
     jsonld_listing_urls: tuple[str, ...] = field(default_factory=tuple)
     jsonld_product_link_selector: Optional[str] = None
+
+    # A.1: True SOLO para tiendas que confirmadamente bloquean
+    # IDENTIFIABLE_USER_AGENT tras probarlo -- excepción documentada por
+    # tienda (anotar el motivo al lado, como con woocommerce_name_must_include),
+    # nunca el comportamiento por defecto.
+    ua_exception: bool = False
 
     def __post_init__(self):
         """Normaliza domain y valida que la config trae lo imprescindible
@@ -741,15 +782,21 @@ def parse_price_minor_unit(raw, minor_unit: int = 2) -> Optional[float]:
 # Capa HTTP: sesión + reintentos con backoff (unificada para las 3 plataformas)
 # ===========================================================================
 
-def build_session(anti_bot: bool = False) -> requests.Session:
+def build_session(anti_bot: bool = False, *, config: Optional["StoreConfig"] = None) -> requests.Session:
     """anti_bot=True usa cloudscraper (necesario en tiendas PrestaShop/WooCommerce
-    detrás de Cloudflare); Shopify normalmente no lo necesita para su JSON público."""
+    detrás de Cloudflare); Shopify normalmente no lo necesita para su JSON público.
+
+    `config` decide el User-Agent (A.1): IDENTIFIABLE_USER_AGENT por defecto,
+    o BROWSER_LIKE_USER_AGENT si config.ua_exception=True (excepción
+    documentada de esa tienda concreta). Sin config (o con
+    ua_exception=False) siempre se usa el identificable."""
     session = cloudscraper.create_scraper(
         browser={"browser": "chrome", "platform": "windows", "mobile": False}
     ) if anti_bot else requests.Session()
 
+    user_agent = BROWSER_LIKE_USER_AGENT if (config and config.ua_exception) else IDENTIFIABLE_USER_AGENT
     session.headers.update({
-        "User-Agent": DEFAULT_USER_AGENT,
+        "User-Agent": user_agent,
         "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
     })
     return session
@@ -806,6 +853,28 @@ def _get_with_ssl_fallback(session: requests.Session, url: str, params: Optional
         return plain_session.get(url, params=params, timeout=timeout)
 
 
+def _parse_retry_after(header_value: Optional[str]) -> Optional[float]:
+    """Parsea la cabecera Retry-After de un 429/503 (RFC 7231): puede venir
+    como segundos ('120') o como fecha HTTP ('Wed, 21 Oct 2026 07:28:00
+    GMT'). Devuelve segundos a esperar desde ahora, o None si la cabecera no
+    viene o no se puede interpretar (en ese caso el llamador cae al backoff
+    exponencial de siempre)."""
+    if not header_value:
+        return None
+    header_value = header_value.strip()
+    if header_value.isdigit():
+        return float(header_value)
+    try:
+        parsed = email.utils.parsedate_to_datetime(header_value)
+    except (TypeError, ValueError):
+        return None
+    if parsed is None:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return max((parsed - datetime.now(timezone.utc)).total_seconds(), 0.0)
+
+
 def request_with_retries(
     session: requests.Session,
     url: str,
@@ -841,7 +910,20 @@ def request_with_retries(
 
         if response.status_code == 429 or response.status_code >= 500:
             if attempt < max_retries:
-                time.sleep(_backoff_delay(attempt))
+                # A.3: un 429 con Retry-After trae una instrucción explícita del
+                # servidor -- tiene prioridad sobre nuestra estimación genérica.
+                retry_after = _parse_retry_after(response.headers.get("Retry-After")) \
+                    if response.status_code == 429 else None
+                if retry_after is not None:
+                    if retry_after > MAX_RETRY_AFTER_WAIT:
+                        # Pide esperar más de lo razonable (mal configurado o
+                        # intencionadamente hostil) -- no se bloquea el proceso
+                        # completo, se corta aquí y se trata como fallo normal
+                        # de esta tienda en este ciclo.
+                        return response
+                    time.sleep(retry_after)
+                else:
+                    time.sleep(_backoff_delay(attempt))
                 continue
             return response  # devolvemos la última respuesta (fallida) igualmente
 
@@ -913,6 +995,95 @@ SCRAPER_CLASSES: dict[Platform, type[BaseStoreScraper]] = {
 
 
 # ===========================================================================
+# robots.txt / Crawl-delay (A.2) -- se comprueba una vez por tienda y se
+# cachea en store_state.py (no en cada scrape: robots.txt cambia poco).
+# ===========================================================================
+
+# Prefijo estable del mensaje de exclusión por robots.txt (ver scrape_store) --
+# permite distinguir "excluida por política" de un fallo real de la tienda al
+# clasificar resultados (_attempt_scrape, _record_backoff_outcome), sin
+# necesitar un campo/estado nuevo en StoreQueryResult solo para esto.
+ROBOTS_EXCLUSION_LOG_PREFIX = "AVISO: excluida por robots.txt"
+
+
+def _is_policy_exclusion(error: Optional[str]) -> bool:
+    """True si `error` es la exclusión por robots.txt de scrape_store, no un
+    fallo real -- respetar robots.txt no debe abrir el circuito ni contar
+    para el backoff entre ejecuciones (A.3)."""
+    return bool(error) and error.startswith(ROBOTS_EXCLUSION_LOG_PREFIX)
+
+
+@dataclass
+class RobotsRules:
+    disallowed: bool
+    crawl_delay: Optional[float]
+
+
+def _robots_check_target(config: StoreConfig) -> Optional[str]:
+    """URL representativa que este scraper va a pedir de verdad, para
+    comprobarla contra robots.txt -- una por plataforma, la ruta de listado
+    principal (no cada URL de producto individual)."""
+    if config.platform == Platform.SHOPIFY:
+        return f"{config.domain}/collections/{config.shopify_collection}"
+    if config.platform == Platform.PRESTASHOP:
+        return config.prestashop_category_url
+    if config.platform == Platform.WOOCOMMERCE:
+        if config.woocommerce_fallback_paths:
+            return f"{config.domain}/{config.woocommerce_fallback_paths[0].strip('/')}/"
+        return None  # solo Store API, sin ruta HTML que comprobar
+    if config.platform == Platform.ODOO:
+        return config.odoo_category_url
+    if config.platform == Platform.OPENCART:
+        return config.opencart_category_url
+    if config.platform == Platform.GENERIC_JSONLD:
+        return config.jsonld_listing_urls[0] if config.jsonld_listing_urls else None
+    return None
+
+
+def _fetch_robots_rules(config: StoreConfig, target_url: str, logger: StoreLogger) -> RobotsRules:
+    """Descarga y parsea robots.txt de config.domain con RobotFileParser
+    (librería estándar). Si no se puede descargar (o no existe), se asume
+    permisivo -- es la convención estándar cuando robots.txt no está
+    disponible, no una forma de saltárselo."""
+    robots_url = f"{config.domain}/robots.txt"
+    session = build_session(anti_bot=False, config=config)
+
+    try:
+        resp = session.get(robots_url, timeout=DEFAULT_TIMEOUT)
+    except requests.RequestException:
+        logger.log(f"AVISO: no se pudo descargar {robots_url}, se asume sin restricciones")
+        return RobotsRules(disallowed=False, crawl_delay=None)
+
+    parser = RobotFileParser()
+    if resp.status_code == 200:
+        parser.parse(resp.text.splitlines())
+    else:
+        parser.parse([])  # 404 u otro -- sin reglas, RobotFileParser permite todo por defecto
+
+    disallowed = not parser.can_fetch("*", target_url)
+    crawl_delay = parser.crawl_delay("*")
+    return RobotsRules(disallowed=disallowed, crawl_delay=float(crawl_delay) if crawl_delay else None)
+
+
+def get_robots_rules(config: StoreConfig, target_url: str, logger: StoreLogger) -> RobotsRules:
+    """Rules cacheadas en store_state.py, refrescadas cada ROBOTS_CACHE_TTL_SECONDS."""
+    state = store_state.get_state(config.domain)
+    now = time.time()
+
+    if state.robots_checked_at is not None and (now - state.robots_checked_at) < ROBOTS_CACHE_TTL_SECONDS:
+        return RobotsRules(disallowed=state.disallowed, crawl_delay=state.crawl_delay)
+
+    rules = _fetch_robots_rules(config, target_url, logger)
+    store_state.update_state(
+        config.domain,
+        robots_checked_at=now,
+        disallowed=rules.disallowed,
+        crawl_delay=rules.crawl_delay,
+    )
+    return rules
+
+
+# ===========================================================================
 # Dispatcher / orquestación
 # ===========================================================================
 
@@ -920,11 +1091,27 @@ def scrape_store(config: StoreConfig, logger: StoreLogger) -> list[Product]:
     """Instancia el scraper de la plataforma de `config` y lo ejecuta. Punto
     de entrada síncrono y sin red de seguridad -- quien llame a esto (siempre
     dentro de un hilo de un ThreadPoolExecutor, ver run_all_stores/
-    query_store) es responsable de aplicar timeout y capturar excepciones."""
+    query_store) es responsable de aplicar timeout y capturar excepciones.
+
+    Antes de scrapear, respeta robots.txt (A.2): si el Disallow cubre la URL
+    que se va a pedir, la tienda se excluye este ciclo con motivo explícito
+    en logs -- no se ignora robots.txt para seguir scrapeando de todos
+    modos. El Crawl-delay declarado (si lo hay) sube el delay entre
+    peticiones de esta tienda por encima de DEFAULT_DELAY, nunca por debajo."""
     logger.log(f"empezando ({config.platform.value})...")
 
+    delay = DEFAULT_DELAY
+    target_url = _robots_check_target(config)
+    if target_url:
+        rules = get_robots_rules(config, target_url, logger)
+        if rules.disallowed:
+            logger.log(f"{ROBOTS_EXCLUSION_LOG_PREFIX} (Disallow cubre {target_url})")
+            return []
+        if rules.crawl_delay:
+            delay = max(DEFAULT_DELAY, rules.crawl_delay)
+
     scraper_cls = SCRAPER_CLASSES[config.platform]
-    scraper = scraper_cls(config, logger)
+    scraper = scraper_cls(config, logger, delay=delay)
     products = scraper.scrape()
 
     logger.log(f"terminado: {len(products)} productos")
@@ -1059,9 +1246,13 @@ def _attempt_scrape(config: StoreConfig, timeout: int, poll_interval: int) -> St
 
     # Cuenta como fallo del circuito: timeout, excepción, o "empty" con un
     # motivo real capturado (bloqueo/página caída). Un "empty" SIN motivo
-    # (catálogo legítimamente vacío ahora mismo) no cuenta -- eso no es un
-    # problema de la tienda que deba abrir el circuito.
-    if result.status in ("timeout", "error") or (result.status == "empty" and result.error):
+    # (catálogo legítimamente vacío ahora mismo), o excluida por robots.txt
+    # (decisión de política, no un problema de la tienda -- ver A.2), no
+    # cuentan -- eso no debe abrir el circuito.
+    is_real_failure = result.status in ("timeout", "error") or (
+        result.status == "empty" and result.error and not _is_policy_exclusion(result.error)
+    )
+    if is_real_failure:
         raise _StoreScrapeFailed(result)
     return result
 
@@ -1096,23 +1287,63 @@ def query_store(config: StoreConfig, *, timeout: int = STORE_TIMEOUT,
         return e.result
 
 
+def _record_backoff_outcome(config: StoreConfig, result: "StoreQueryResult") -> None:
+    """A.3: cuenta fallos seguidos ENTRE EJECUCIONES de run_all_stores (no
+    dentro de la misma -- eso ya lo cubre request_with_retries con su propio
+    backoff) y fija backoff_until al llegar a STORE_BACKOFF_FAILURE_THRESHOLD,
+    para que el PRÓXIMO run_all_stores también respete la pausa. Un éxito
+    resetea el contador; una exclusión por robots.txt no cuenta como fallo
+    (ver _is_policy_exclusion)."""
+    is_failure = result.status in ("timeout", "error") or (
+        result.status == "empty" and result.error and not _is_policy_exclusion(result.error)
+    )
+
+    if not is_failure:
+        store_state.update_state(config.domain, consecutive_failures=0, backoff_until=None)
+        return
+
+    state = store_state.get_state(config.domain)
+    failures = state.consecutive_failures + 1
+    backoff_until = state.backoff_until
+    if failures >= STORE_BACKOFF_FAILURE_THRESHOLD:
+        backoff_until = time.time() + STORE_BACKOFF_DEFAULT_SECONDS
+    store_state.update_state(config.domain, consecutive_failures=failures, backoff_until=backoff_until)
+
+
 def run_all_stores(stores: list[StoreConfig]) -> tuple[list[Product], list[tuple[str, str, str]]]:
     """Scrapea TODAS las tiendas en paralelo (un hilo por tienda, todas
     lanzadas a la vez) y devuelve (productos_combinados, tiendas_fallidas).
     Usado por main() para la ejecución batch completa -- a diferencia de
-    query_store, no lleva circuit breaker (cada tienda se intenta una sola
-    vez por ejecución, así que no hay nada que cortocircuitar) y comparte un
-    único activity_tracker entre todas para que STORE_TIMEOUT se calcule por
-    tienda individualmente."""
+    query_store, no lleva circuit breaker en memoria (cada tienda se intenta
+    una sola vez por ejecución, así que no hay nada que cortocircuitar
+    DENTRO de esta llamada) y comparte un único activity_tracker entre todas
+    para que STORE_TIMEOUT se calcule por tienda individualmente.
+
+    Sí respeta el backoff persistido ENTRE ejecuciones (A.3, store_state.py):
+    una tienda con backoff_until aún en el futuro (3+ fallos seguidos en
+    ejecuciones anteriores) se salta sin intentarla, y cada resultado de esta
+    ejecución actualiza ese estado para la siguiente vez que corra esto."""
     activity_tracker: dict[str, float] = {}
     loggers: dict[str, StoreLogger] = {}
     started_at: dict[str, float] = {}
     failed_stores: list[tuple[str, str, str]] = []
     all_products: list[Product] = []
 
-    with ThreadPoolExecutor(max_workers=max(len(stores), 1)) as executor:
+    now = time.time()
+    runnable_stores = []
+    for config in stores:
+        backoff_until = store_state.get_state(config.domain).backoff_until
+        if backoff_until and backoff_until > now:
+            wait_min = round((backoff_until - now) / 60, 1)
+            print(f"[{config.label}] AVISO: en backoff tras fallos repetidos, quedan ~{wait_min} min")
+            failed_stores.append((config.label, config.platform.value,
+                                   f"en backoff tras fallos repetidos (~{wait_min} min restantes, ver A.3)"))
+            continue
+        runnable_stores.append(config)
+
+    with ThreadPoolExecutor(max_workers=max(len(runnable_stores), 1)) as executor:
         futures = {}
-        for config in stores:
+        for config in runnable_stores:
             started_at[config.label] = time.time()
             logger = StoreLogger(config.label, activity_tracker)
             loggers[config.label] = logger
@@ -1122,6 +1353,7 @@ def run_all_stores(stores: list[StoreConfig]) -> tuple[list[Product], list[tuple
             result = _build_query_result(config, future, loggers[config.label], activity_tracker,
                                           STORE_TIMEOUT, STORE_POLL_INTERVAL,
                                           started_at[config.label])
+            _record_backoff_outcome(config, result)
 
             if result.status == "ok":
                 all_products.extend(result.products)

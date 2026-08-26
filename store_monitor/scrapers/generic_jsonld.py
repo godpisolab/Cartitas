@@ -40,7 +40,7 @@ class GenericJsonLdScraper(BaseStoreScraper):
         para leer su JSON-LD (con los fallbacks de _parse_product_page). Un
         producto sin JSON-LD válido se omite con un AVISO, no aborta la
         tienda entera."""
-        session = build_session(anti_bot=True)
+        session = build_session(anti_bot=True, config=self.config)
         self.logger.log("iniciando sesión anti-bot (cloudscraper)...")
 
         product_urls = self._collect_product_urls(session)

@@ -23,7 +23,7 @@ class PrestaShopScraper(BaseStoreScraper):
         prestashop_category_url hasta detected_max_page, deduplicando por
         id_product por si la tienda re-sirve la última página real para
         números de página que ya no existen (ver comentario más abajo)."""
-        session = build_session(anti_bot=True)
+        session = build_session(anti_bot=True, config=self.config)
         self.logger.log("iniciando sesión anti-bot (cloudscraper)...")
 
         home_resp = request_with_retries(session, self.config.domain + "/", heartbeat=self.logger.touch)

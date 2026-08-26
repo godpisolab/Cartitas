@@ -50,7 +50,7 @@ class OdooScraper(BaseStoreScraper):
         JSON-LD válido se omite con un AVISO en vez de abortar toda la
         tienda -- puede ser una página con tema distinto, no necesariamente
         un fallo general."""
-        session = build_session(anti_bot=True)
+        session = build_session(anti_bot=True, config=self.config)
         self.logger.log("iniciando sesión anti-bot (cloudscraper)...")
 
         product_urls = self._collect_product_urls(session)

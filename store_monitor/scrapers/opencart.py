@@ -35,7 +35,7 @@ class OpenCartScraper(BaseStoreScraper):
         """Pagina opencart_category_url siguiendo el enlace real de
         siguiente página hasta que no queden más o una página no traiga
         productos."""
-        session = build_session(anti_bot=True)
+        session = build_session(anti_bot=True, config=self.config)
         self.logger.log("iniciando sesión anti-bot (cloudscraper)...")
 
         products: list[Product] = []
