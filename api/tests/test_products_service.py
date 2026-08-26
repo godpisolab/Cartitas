@@ -5,8 +5,14 @@ si la query hace lo que crees)."""
 
 from __future__ import annotations
 
+from datetime import date
+
+import pytest
+from sqlalchemy import text
+
 import services.products as products_service
-from schemas.products import ProductFilters
+from errors import ConflictError, NotFoundError
+from schemas.products import ProductCreate, ProductFilters, ProductPatch
 
 
 class TestSoloConfirmedCuentan:
@@ -153,3 +159,158 @@ class TestPaginacion:
         result = products_service.search(session, ProductFilters(page=2, limit=2))
 
         assert len(result.data) == 1
+
+
+class TestGetById:
+    def test_404_si_no_existe(self, session):
+        with pytest.raises(NotFoundError):
+            products_service.get_by_id(session, 999)
+
+    def test_404_si_existe_pero_sin_ningun_confirmado(self, session, seed_listing):
+        product_id = seed_listing(match_status="needs_review")
+
+        with pytest.raises(NotFoundError):
+            products_service.get_by_id(session, product_id)
+
+    def test_listings_ordenados_de_mas_barato_a_mas_caro(self, session, seed_listing):
+        product_id = seed_listing(store_name="Cara", price=150.0)
+        seed_listing(store_name="Barata", price=90.0, product_id=product_id)
+
+        detail = products_service.get_by_id(session, product_id)
+
+        assert [listing.price for listing in detail.listings] == [90.0, 150.0]
+
+    def test_solo_incluye_listings_confirmados(self, session, seed_listing):
+        product_id = seed_listing(store_name="Confirmada", price=100.0, match_status="confirmed")
+        seed_listing(store_name="Pendiente", price=50.0, match_status="needs_review", product_id=product_id)
+
+        detail = products_service.get_by_id(session, product_id)
+
+        assert len(detail.listings) == 1
+        assert detail.listings[0].store_name == "Confirmada"
+
+
+class TestGetPriceHistory:
+    def test_404_si_producto_no_existe(self, session):
+        with pytest.raises(NotFoundError):
+            products_service.get_price_history(session, 999, None)
+
+    def test_agregado_entre_tiendas_toma_el_minimo_por_dia(self, session, seed_listing):
+        product_id = seed_listing(store_name="A")
+        seed_listing(store_name="B", product_id=product_id)
+        sp_ids = [row[0] for row in session.exec(
+            text("SELECT id FROM store_product WHERE product_id = :p ORDER BY id"), params={"p": product_id},
+        ).all()]
+
+        today = date.today()
+        session.exec(text(
+            "INSERT INTO price_history (store_product_id, price, stock_status, scraped_date) "
+            "VALUES (:sp, 100.0, 'disponible', :d)"
+        ), params={"sp": sp_ids[0], "d": today})
+        session.exec(text(
+            "INSERT INTO price_history (store_product_id, price, stock_status, scraped_date) "
+            "VALUES (:sp, 80.0, 'agotado', :d)"
+        ), params={"sp": sp_ids[1], "d": today})
+        session.commit()
+
+        series = products_service.get_price_history(session, product_id, None)
+
+        assert len(series.series) == 1
+        assert series.series[0].min_price == 80.0
+        # alguna tienda tenía stock ese día -- "disponible" gana aunque la
+        # más barata estuviera agotada (docs/api-endpoints-v1.md sección 1).
+        assert series.series[0].stock_status.value == "disponible"
+
+    def test_con_store_id_devuelve_solo_esa_tienda(self, session, seed_listing):
+        product_id = seed_listing(store_name="A", price=100.0)
+        seed_listing(store_name="B", price=80.0, product_id=product_id)
+        rows = session.exec(
+            text("SELECT id, store_id FROM store_product WHERE product_id = :p ORDER BY id"),
+            params={"p": product_id},
+        ).all()
+        sp_a_id, store_a_id = rows[0]
+
+        session.exec(text(
+            "INSERT INTO price_history (store_product_id, price, stock_status, scraped_date) "
+            "VALUES (:sp, 100.0, 'disponible', :d)"
+        ), params={"sp": sp_a_id, "d": date.today()})
+        session.commit()
+
+        series = products_service.get_price_history(session, product_id, store_a_id)
+
+        assert series.store_id == store_a_id
+        assert len(series.series) == 1
+        assert series.series[0].min_price == 100.0
+
+    def test_sin_historico_devuelve_serie_vacia(self, session, seed_listing):
+        product_id = seed_listing()
+
+        series = products_service.get_price_history(session, product_id, None)
+
+        assert series.series == []
+
+
+class TestCreateProduct:
+    def _body(self, game_id, category_id, **overrides):
+        defaults = dict(game_id=game_id, category_id=category_id, set_code="OP17", main_set="OP17",
+                         language="EN", name_canonical="Booster Box OP17 EN", image_url=None,
+                         is_hot=False, hot_until=None)
+        defaults.update(overrides)
+        return ProductCreate(**defaults)
+
+    def _seed_game_and_category(self, session) -> tuple[int, int]:
+        game_id = session.exec(
+            text("INSERT INTO game (name, slug) VALUES ('One Piece', 'one-piece') RETURNING id"),
+        ).first()[0]
+        category_id = session.exec(
+            text("INSERT INTO category (name, slug) VALUES ('Booster Box', 'booster-box') RETURNING id"),
+        ).first()[0]
+        session.commit()
+        return game_id, category_id
+
+    def test_crea_producto_nuevo(self, session):
+        game_id, category_id = self._seed_game_and_category(session)
+
+        detail = products_service.create_product(session, self._body(game_id, category_id))
+
+        assert detail.name_canonical == "Booster Box OP17 EN"
+        assert detail.listings == []
+
+    def test_409_si_mismo_game_id_y_name_canonical(self, session):
+        game_id, category_id = self._seed_game_and_category(session)
+        products_service.create_product(session, self._body(game_id, category_id))
+
+        with pytest.raises(ConflictError):
+            products_service.create_product(session, self._body(game_id, category_id))
+
+
+class TestPatchProduct:
+    def test_404_si_no_existe(self, session):
+        with pytest.raises(NotFoundError):
+            products_service.patch_product(session, 999, ProductPatch(is_hot=True))
+
+    def test_edita_solo_los_campos_pasados(self, session, seed_listing):
+        product_id = seed_listing(is_hot=False)
+
+        updated = products_service.patch_product(session, product_id, ProductPatch(is_hot=True))
+
+        assert updated.name_canonical  # nombre original intacto
+        # is_hot no forma parte de ProductDetail -- se verifica indirectamente
+        # releyendo la fila.
+        row = session.exec(text("SELECT is_hot FROM product WHERE id = :id"), params={"id": product_id}).first()
+        assert row[0] is True
+
+    def test_409_si_name_canonical_colisiona_con_otro_producto(self, session, seed_listing):
+        product_a = seed_listing(name_canonical="Producto A", store_name="TiendaA")
+        seed_listing(name_canonical="Producto B", store_name="TiendaB")
+
+        with pytest.raises(ConflictError):
+            products_service.patch_product(session, product_a, ProductPatch(name_canonical="Producto B"))
+
+    def test_no_colisiona_consigo_mismo(self, session, seed_listing):
+        product_id = seed_listing(name_canonical="Producto A")
+
+        # Debe poder "editar" con el mismo nombre que ya tiene sin 409.
+        updated = products_service.patch_product(session, product_id, ProductPatch(name_canonical="Producto A"))
+
+        assert updated.name_canonical == "Producto A"

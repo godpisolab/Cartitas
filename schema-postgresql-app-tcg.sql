@@ -97,6 +97,14 @@ CREATE TABLE store_product (
     last_etag             VARCHAR(255),
     last_modified_header  VARCHAR(255),
     last_checked_at       TIMESTAMPTZ,
+    -- Independiente de match_status a propósito (API v1, alerta #2 de
+    -- api-endpoints-v1.md sección de matching): marca cuándo un humano
+    -- revisó esta fila por última vez desde el panel (POST /matches/{id}/
+    -- reject la rellena, /reopen la limpia a NULL) -- matcher.run_matching()
+    -- NUNCA la toca, así que un reject de hoy no se pierde en el barrido
+    -- de mañana. GET /matches excluye por defecto lo revisado en los
+    -- últimos 14 días (constante de backend, no columna nueva).
+    reviewed_at           TIMESTAMPTZ,
     -- Incluye raw_variant (no solo store_url): varias variantes de un mismo
     -- producto Shopify (idioma, sobre/caja...) comparten la misma store_url
     -- con stock/precio independientes por variante (caso Pokemillon, D.5) --
@@ -150,7 +158,14 @@ CREATE TABLE restock_subscription (
     push_endpoint  TEXT NOT NULL,
     push_keys      JSONB NOT NULL,  -- {p256dh, auth} que exige la Web Push API
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (product_id, store_id, push_endpoint)  -- evita suscripciones duplicadas del mismo dispositivo
+    -- NULLS NOT DISTINCT (mismo bug que store_product, encontrado 2026-08-27
+    -- al implementar POST /subscriptions): store_id es SIEMPRE NULL en v1
+    -- ("cualquier tienda" es el único comportamiento soportado), y un UNIQUE
+    -- normal nunca detecta conflicto entre dos NULL -- sin este modificador,
+    -- el mismo dispositivo podría suscribirse repetidamente al mismo
+    -- producto sin que la constraint (ni el 409 que depende de ella) lo
+    -- impidiera nunca. Requiere Postgres 15+.
+    UNIQUE NULLS NOT DISTINCT (product_id, store_id, push_endpoint)
 );
 
 CREATE INDEX idx_restock_subscription_product ON restock_subscription (product_id);

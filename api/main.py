@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from errors import install_exception_handlers
-from routers import products
+from routers import catalog, deals, matches, products, restock_events, stores, subscriptions
 
 app = FastAPI(title="Cartitas API", version="1.0.0")
 
@@ -20,8 +20,14 @@ install_exception_handlers(app)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[],
-    allow_methods=["GET", "POST", "DELETE"],
-    allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 app.include_router(products.router)
+app.include_router(deals.router)
+app.include_router(restock_events.router)
+app.include_router(stores.router)
+app.include_router(catalog.router)
+app.include_router(subscriptions.router)
+app.include_router(matches.router)

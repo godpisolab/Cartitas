@@ -42,6 +42,16 @@ class TestGetUpdateStateRoundTrip:
         assert state.crawl_delay == 5.0
         assert state.disallowed is False  # resto en su valor por defecto
         assert state.consecutive_failures == 0
+        assert state.active is True  # activa por defecto tras sync_stores
+
+    def test_active_ida_y_vuelta(self, db_conn):
+        import persistence
+        persistence.sync_stores(db_conn, [make_config()])
+        db_conn.commit()
+
+        store_state.update_state("https://tienda.example", active=False)
+
+        assert store_state.get_state("https://tienda.example").active is False
 
     def test_dos_dominios_distintos_no_se_mezclan(self, db_conn):
         import persistence

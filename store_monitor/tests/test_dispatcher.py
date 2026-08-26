@@ -236,3 +236,32 @@ class TestBackoffPersistido:
 
         assert fake_store_state[cfg.domain].consecutive_failures == 0
         assert fake_store_state[cfg.domain].backoff_until is None
+
+
+class TestStoreActive:
+    """store.active (API v1, PATCH /stores/{id}) -- antes de esto la
+    columna existía en el esquema pero run_all_stores() nunca la miraba."""
+
+    def test_tienda_inactiva_se_salta_sin_intentar_scraping(self, monkeypatch, fake_store_state):
+        cfg = shopify_config("TiendaDesactivada")
+        fake_store_state[cfg.domain] = store_state.StoreState(active=False)
+        mock_scrape = MagicMock(return_value=[])
+        monkeypatch.setattr(dispatcher, "scrape_store", mock_scrape)
+
+        products, failed = dispatcher.run_all_stores([cfg])
+
+        assert products == []
+        assert len(failed) == 1
+        assert "active" in failed[0][2]
+        mock_scrape.assert_not_called()
+
+    def test_tienda_activa_por_defecto_no_se_salta(self, monkeypatch, fake_store_state):
+        # StoreState() sin fila todavía en `store` -- active debe ser
+        # permisivo (True) igual que el resto de campos de esta clase.
+        cfg = shopify_config("TiendaSinFilaTodavia")
+        mock_scrape = MagicMock(return_value=[])
+        monkeypatch.setattr(dispatcher, "scrape_store", mock_scrape)
+
+        dispatcher.run_all_stores([cfg])
+
+        mock_scrape.assert_called_once()

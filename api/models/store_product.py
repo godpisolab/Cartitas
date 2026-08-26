@@ -54,3 +54,7 @@ class StoreProduct(SQLModel, table=True):
     last_etag: str | None = None
     last_modified_header: str | None = None
     last_checked_at: datetime | None = None
+    # Independiente de match_status (API v1): cuándo un humano revisó esta
+    # fila por última vez desde el panel -- matcher.run_matching() nunca la
+    # toca. Ver GET /matches (routers/matches.py) para el uso del filtro.
+    reviewed_at: datetime | None = None

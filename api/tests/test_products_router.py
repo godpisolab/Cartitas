@@ -115,3 +115,75 @@ class TestValidacionQueryParams:
     def test_page_cero_es_422(self, client, auth_headers):
         resp = client.get("/products?page=0", headers=auth_headers)
         assert resp.status_code == 422
+
+
+class TestGetProductDetailRouter:
+    def test_404_problem_json(self, client, auth_headers):
+        resp = client.get("/products/999", headers=auth_headers)
+        assert resp.status_code == 404
+        assert resp.headers["content-type"] == "application/problem+json"
+
+    def test_200_con_listings_camelcase(self, client, seed_listing, auth_headers):
+        product_id = seed_listing(name_canonical="Booster Box OP16 EN")
+
+        body = client.get(f"/products/{product_id}", headers=auth_headers).json()
+
+        assert body["nameCanonical"] == "Booster Box OP16 EN"
+        assert body["listings"][0]["storeName"]
+        assert "mainSet" in body
+
+
+class TestPriceHistoryRouter:
+    def test_404_si_producto_no_existe(self, client, auth_headers):
+        resp = client.get("/products/999/price-history", headers=auth_headers)
+        assert resp.status_code == 404
+
+    def test_200_serie_vacia_sin_historico(self, client, seed_listing, auth_headers):
+        product_id = seed_listing()
+
+        body = client.get(f"/products/{product_id}/price-history", headers=auth_headers).json()
+
+        assert body["productId"] == product_id
+        assert body["series"] == []
+
+
+class TestAdminProductsRouter:
+    def test_post_products_requiere_scope_admin(self, client, auth_headers):
+        resp = client.post("/products", headers=auth_headers, json={
+            "gameId": 1, "categoryId": 1, "nameCanonical": "X",
+        })
+        assert resp.status_code == 403
+
+    def test_post_products_con_scope_admin(self, session, client, monkeypatch):
+        import config
+        from sqlalchemy import text
+        monkeypatch.setattr(config, "API_KEYS", {"panel": frozenset({"admin:*"})})
+        game_id = session.exec(
+            text("INSERT INTO game (name, slug) VALUES ('One Piece', 'one-piece') RETURNING id"),
+        ).first()[0]
+        category_id = session.exec(
+            text("INSERT INTO category (name, slug) VALUES ('Booster Box', 'booster-box') RETURNING id"),
+        ).first()[0]
+        session.commit()
+
+        resp = client.post("/products", headers={"Authorization": "Bearer panel"}, json={
+            "gameId": game_id, "categoryId": category_id, "nameCanonical": "Booster Box OP17 EN",
+        })
+
+        assert resp.status_code == 201
+        assert resp.json()["nameCanonical"] == "Booster Box OP17 EN"
+
+    def test_patch_products_requiere_scope_admin(self, client, seed_listing, auth_headers):
+        product_id = seed_listing()
+        resp = client.patch(f"/products/{product_id}", headers=auth_headers, json={"isHot": True})
+        assert resp.status_code == 403
+
+    def test_patch_products_con_scope_admin(self, client, seed_listing, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "API_KEYS", {"panel": frozenset({"admin:*"})})
+        product_id = seed_listing()
+
+        resp = client.patch(f"/products/{product_id}", headers={"Authorization": "Bearer panel"},
+                             json={"isHot": True})
+
+        assert resp.status_code == 200

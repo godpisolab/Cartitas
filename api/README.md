@@ -1,8 +1,8 @@
 # Cartitas API
 
-Servicio FastAPI + SQLModel, hermano de `store_monitor/` (no un módulo dentro de él -- ver `docs/estandares-implementacion-api.md`, sección 1). Sirve el catálogo/comparación de precios que alimenta el scraper; no escribe en la BBDD que consulta salvo en los endpoints de escritura explícitos (matching, suscripciones).
+Servicio FastAPI + SQLModel, hermano de `store_monitor/` (no un módulo dentro de él -- ver `docs/estandares-implementacion-api.md`, sección 1). Sirve el catálogo/comparación de precios que alimenta el scraper; no escribe en la BBDD que consulta salvo en los endpoints de escritura explícitos (matching, suscripciones, administración).
 
-Estado actual: **esqueleto + `GET /products`**, el primer endpoint end-to-end (auth, paginación, errores RFC 7807 y `camelCase` ya validados en un caso real) antes de replicar el patrón al resto de `docs/api-endpoints-v1.md`.
+Estado actual: toda la superficie de `docs/api-endpoints-v1.md` + `docs/api-endpoints-gestor.md` implementada, salvo `POST /stores/{id}/scrape` (aplazado explícitamente -- ver "Endpoints pendientes" más abajo).
 
 ## Instalación
 
@@ -17,7 +17,7 @@ Requiere el mismo Postgres que `store_monitor/` (ver `docker_composes/docker-com
 | Variable | Default | Qué es |
 |---|---|---|
 | `DATABASE_URL` | `postgresql://cartitas:cartitas@localhost:5433/cartitas` | Conexión a Postgres |
-| `API_KEYS_JSON` | `{}` (ninguna key válida) | `{"clave": ["read", "write:subscriptions"], ...}` -- API keys estáticas por cliente y sus scopes (ver `docs/api-endpoints-v1.md` sección 0) |
+| `API_KEYS_JSON` | `{}` (ninguna key válida) | `{"clave": ["read", "write:subscriptions"], ...}` -- API keys estáticas por cliente y sus scopes (ver `docs/api-endpoints-v1.md` sección 0). Los scopes usados hoy: `read`, `write:subscriptions`, `admin:*` (panel de revisión/gestor, un único scope amplio -- ver `docs/api-endpoints-gestor.md` sección 0) |
 
 ## Uso
 
@@ -47,6 +47,7 @@ main.py (junta routers, registra el exception handler, CORS)
 - `auth.py` -- `require_scope(scope)`, enganchado por `Depends()` en cada router.
 - `errors.py` -- excepciones de dominio (`NotFoundError`, `ConflictError`...) + su mapeo único a `application/problem+json` (RFC 7807).
 - `pagination.py` -- envelope `{data, meta}` + `Link` header (RFC 8288), compartido por todo listado.
+- `_store_monitor_bridge.py` -- puente ESTRECHO y documentado hacia `store_monitor/classify.py`/`matcher.py` (Python puro, sin dependencias de terceros) para que `GET /matches` derive la categoría de un `raw_name` con la MISMA lógica que ya usa `matcher.run_matching()`, sin arrastrar `cloudscraper`/`pybreaker`/el resto de dependencias del scraper. Usa `sys.path.append()` (nunca `insert(0, ...)`) precisamente porque ambos paquetes tienen su propio `config.py` -- ver el docstring del fichero para el razonamiento completo.
 
 **Regla que se mantiene al añadir el siguiente endpoint:** un router nunca contiene un `select`/regla de negocio inline -- eso vive en `services/`, testeable sin FastAPI ni `TestClient`.
 
@@ -54,9 +55,26 @@ main.py (junta routers, registra el exception handler, CORS)
 
 | Endpoint | Auth | Descripción |
 |---|---|---|
-| `GET /products` | `read` | Buscador de productos canónicos, con filtros (`q`, `game`, `category`, `setCode`, `language`, `minPrice`, `maxPrice`, `isHot`) y paginación. Solo cuentan `storeProduct` con `matchStatus = confirmed` para `minPrice`/`storeCount`/`anyInStock` -- un producto sin ningún listado confirmado no aparece en absoluto. |
+| `GET /products` | `read` | Buscador de productos canónicos, con filtros (`q`, `game`, `category`, `setCode`, `language`, `minPrice`, `maxPrice`, `isHot`) y paginación. Solo cuentan `storeProduct` confirmados para `minPrice`/`storeCount`/`anyInStock`. |
+| `GET /products/{id}` | `read` | Ficha con `listings` ordenados de más barato a más caro. `404` si no hay ningún listado confirmado. |
+| `GET /products/{id}/price-history` | `read` | Curva agregada (mínimo entre tiendas) o de una tienda concreta (`storeId`). |
+| `POST /products` | `admin:*` | Alta de producto canónico a mano. `409` si colisiona `gameId`+`nameCanonical`. |
+| `PATCH /products/{id}` | `admin:*` | Edición parcial (`nameCanonical`, `imageUrl`, `isHot`, `hotUntil`) -- `categoryId`/`gameId`/`setCode` no editables en v1. |
+| `GET /deals` | `read` | Ranking de bajadas de precio vs. hace 7 días exactos, solo productos con stock ahora mismo. |
+| `GET /restock-events` | `read` | Feed público de altas de stock recientes (ventana en horas). |
+| `GET /stores` / `GET /stores/{id}` | `read` | Listado y detalle (con campos dinámicos de scraping respetuoso: `crawlDelaySeconds`, `disallowed`, etc.). |
+| `PATCH /stores/{id}` | `admin:*` | Edita `sitemapUrl`/`active`. `active=false` SÍ excluye la tienda del próximo barrido (cableado en `store_monitor/dispatcher.py`). |
+| `GET /games`, `GET /categories` | `read` | Catálogo de filtros; `categories` como árbol de dos niveles. |
+| `POST /subscriptions` | `write:subscriptions` | Sin `Idempotency-Key` real -- se apoya en `UNIQUE NULLS NOT DISTINCT(productId, storeId, pushEndpoint)`, `409` en reintento (ver `docs/estandares-implementacion-api.md` sección 7). |
+| `DELETE /subscriptions/{id}` | `write:subscriptions` | Requiere `pushEndpoint` como prueba de propiedad (`403` si no coincide). |
+| `GET /subscriptions?pushEndpoint=` | `read` | "Productos que sigues" de un dispositivo, sin cuenta de usuario. |
+| `GET /matches` | `admin:*` | Cola de matching -- `status` en `needsReview`/`unmatched`/`confirmed`/`all`, `minSimilarity`/`maxSimilarity` sobre el top-1 candidato calculado en caliente (nunca sobre `matchConfidence`), oculta lo revisado hace menos de 14 días salvo `includeReviewed=true`. |
+| `POST /matches/{id}/confirm` \| `/reject` \| `/reopen` | `admin:*` | Ciclo completo de revisión manual -- `reopen` exige que estuviera `confirmed` (`409` si no). |
+| `GET /matches/missing-candidates` | `admin:*` | Puerto de `matcher.find_missing_canonical_candidates()` (C.1) sobre SQLModel. |
 
-El resto de `docs/api-endpoints-v1.md` (ficha de producto, histórico, ofertas, tiendas, catálogo de filtros, suscripciones, panel de revisión) está especificado pero pendiente de implementar.
+## Endpoints pendientes
+
+- `POST /stores/{id}/scrape` (`docs/api-endpoints-gestor.md` sección 3) -- expondría `dispatcher.query_store()`, pero `api/` no tiene (a propósito) las dependencias de scraping de `store_monitor/`. Aplazado como su propia tarea de diseño hasta decidir el puente entre los dos servicios (subproceso, cola de trabajos...).
 
 ## Tests
 
@@ -73,7 +91,9 @@ Misma `cartitas_test` que usa `store_monitor/tests/` (mismo contenedor, mismo es
 pytest --cov=. --cov-report=term-missing --cov-config=<(printf '[run]\nomit = tests/*,conftest.py')
 ```
 
-- `test_products_service.py` -- integración contra Postgres real: agregados (`minPrice`/`storeCount`/`anyInStock` solo sobre confirmados), todos los filtros, paginación.
-- `test_products_router.py` -- `TestClient` contra la misma BBDD: auth (401/403/200), `camelCase` de verdad en el JSON, `Link` header, validación de query params (422 `problem+json`).
+140 tests, 99% de cobertura. Un fichero de test por área funcional, cada uno con una clase de tests de `services/` (integración contra Postgres real, sin mocks de la sesión) y otra de `routers/` (`TestClient` contra la misma BBDD -- auth, `camelCase` de verdad en el JSON, códigos de estado, `problem+json`):
+
+- `test_products_service.py` / `test_products_router.py` -- búsqueda, ficha, histórico, alta/edición de administración.
+- `test_deals.py`, `test_restock_events.py`, `test_catalog.py`, `test_stores.py`, `test_subscriptions.py`, `test_matches.py`.
 - `test_auth.py` -- unitario puro, sin BBDD.
 - `test_errors.py` -- un test por tipo de excepción -> código HTTP + forma del `problem+json`, contra una app FastAPI mínima propia (no la real).

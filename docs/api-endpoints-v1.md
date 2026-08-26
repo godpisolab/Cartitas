@@ -141,6 +141,33 @@ Ranking de mejores ofertas activas — alimenta la home ("chollómetro" del dise
 
 ---
 
+## 2.1 Feed de restocks recientes
+
+### `GET /restock-events`
+
+Nivel 1 del diseño funcional ("últimas 24h: qué ha vuelto a stock") — feed público, consumible/compartible, no confundir con la cola de matching (que es del gestor).
+
+**Query params:** `game`, `category`, `hours` (int, default `24`), `limit` (int, default `50`).
+
+**Respuesta `200`:**
+```json
+{
+  "data": [
+    {
+      "productId": 301,
+      "nameCanonical": "Booster Box: The Time of Battle OP-16 EN",
+      "storeName": "Cardzone",
+      "price": 109.90,
+      "detectedAt": "2026-08-27T04:03:00Z"
+    }
+  ]
+}
+```
+
+Fuente: `restock_event` (join con `store_product`/`product`/`store`), ordenado por `detectedAt` descendente. Solo eventos con `product_id` no nulo (los únicos que existen, ver B.2 — un restock sin match confirmado nunca genera fila aquí, así que no hace falta filtrar nada adicional).
+
+---
+
 ## 3. Tiendas
 
 ### `GET /stores`
@@ -250,13 +277,15 @@ Lista las suscripciones activas de un dispositivo, identificado por su `pushEndp
 
 ## 6. Panel de revisión (matching)
 
-### `GET /matches/pending`
+### `GET /matches`
+
+**Renombrado (2026-08-27):** antes `/matches/pending` — dejó de tener sentido en cuanto el endpoint también puede devolver `status=confirmed` (una cola de "pendientes" no debería poder listar lo ya resuelto). Ver `api-endpoints-gestor.md` sección 1 para el uso de `status=confirmed` (auditar matches ya confirmados) y las herramientas adicionales de esa cola (`reopen`, `missing-candidates`).
 
 **Query params:**
 
 | Parámetro | Tipo | Descripción |
 |---|---|---|
-| `status` | `needsReview` \| `unmatched` \| `all` | default `needsReview` — `notApplicable` nunca aparece bajo ningún valor |
+| `status` | `needsReview` \| `unmatched` \| `confirmed` \| `all` | default `needsReview` — `notApplicable` nunca aparece bajo ningún valor |
 | `storeId` | int | filtra por tienda |
 | `minSimilarity`, `maxSimilarity` | number | sobre el score del **mejor candidato calculado en caliente**, no sobre `matchConfidence` (ver alerta abajo) |
 | `includeReviewed` | bool | default `false` — ver `reviewedAt` más abajo |
@@ -342,7 +371,7 @@ Crea un producto canónico a mano — para sembrar un set recién lanzado, o cua
 
 ## Resumen de cobertura
 
-Cada funcionalidad del núcleo del diseño funcional (buscador, ficha, comparación, histórico, ranking de ofertas, alertas de restock) y del panel de revisión tiene endpoint propio, sin endpoints a medida de una pantalla concreta. Una pieza de esquema nueva que este documento deja pedida y que aún no existe en `schema-postgresql-app-tcg.sql`:
+Cada funcionalidad del núcleo del diseño funcional (buscador, ficha, comparación, histórico, ranking de ofertas, feed de restocks recientes, alertas de restock) y del panel de revisión tiene endpoint propio, sin endpoints a medida de una pantalla concreta. Los endpoints exclusivos del gestor (matching completo, administración de productos/tiendas) viven en `api-endpoints-gestor.md`, no aquí. Una pieza de esquema nueva que este documento deja pedida y que aún no existe en `schema-postgresql-app-tcg.sql`:
 
 1. `store_product.reviewed_at TIMESTAMPTZ NULL` (alerta #2 de la sección de matching).
 
@@ -351,3 +380,5 @@ El resto de endpoints encajan en el esquema ya existente sin cambios.
 ## Siguiente paso natural
 
 Con las dos alertas de diseño resueltas por escrito (la de `minSimilarity` es solo una aclaración de dónde consultar, la de `reviewedAt` sí pide una migración pequeña de esquema), esto ya se puede traducir a routers de FastAPI + modelos SQLModel. La migración de `reviewed_at` es además un buen primer caso real para decidir si merece la pena adelantar Alembic, o si sigue entrando dentro de "cambio aditivo trivial" que no necesita la herramienta todavía.
+
+**Hecho (2026-08-27):** todos los endpoints de este documento están implementados en `api/` -- productos (buscador, ficha, histórico, alta/edición de administración), ofertas, feed de restocks recientes, tiendas (lectura + `PATCH` de administración), catálogo de filtros, suscripciones (sin `Idempotency-Key` real, ver `estandares-implementacion-api.md` sección 7), y el panel de matching completo (`GET /matches` con los cuatro valores de `status`, `confirm`/`reject`/`reopen`, `missing-candidates`). `store_product.reviewed_at` ya existe en el esquema (aplicado como `ALTER TABLE` directo, sin Alembic). 140 tests, 99% de cobertura. Lo único NO implementado de la superficie completa (`api-endpoints-v1.md` + `api-endpoints-gestor.md`) es `POST /stores/{id}/scrape`, aplazado explícitamente por el puente de dependencias sin resolver hacia `store_monitor/` (ver `api-endpoints-gestor.md`, sección 3).

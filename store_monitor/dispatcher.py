@@ -382,7 +382,12 @@ def run_all_stores(stores: list[StoreConfig]) -> tuple[list[Product], list[tuple
     Sí respeta el backoff persistido ENTRE ejecuciones (A.3, store_state.py):
     una tienda con backoff_until aún en el futuro (3+ fallos seguidos en
     ejecuciones anteriores) se salta sin intentarla, y cada resultado de esta
-    ejecución actualiza ese estado para la siguiente vez que corra esto."""
+    ejecución actualiza ese estado para la siguiente vez que corra esto.
+
+    También respeta `store.active` (API v1, PATCH /stores/{id}): una tienda
+    desactivada a mano desde el panel se salta igual que una en backoff --
+    antes de esto la columna existía en el esquema pero no tenía ningún
+    efecto real."""
     activity_tracker: dict[str, float] = {}
     loggers: dict[str, StoreLogger] = {}
     started_at: dict[str, float] = {}
@@ -392,9 +397,13 @@ def run_all_stores(stores: list[StoreConfig]) -> tuple[list[Product], list[tuple
     now = time.time()
     runnable_stores = []
     for config in stores:
-        backoff_until = store_state.get_state(config.domain).backoff_until
-        if backoff_until and backoff_until > now:
-            wait_min = round((backoff_until - now) / 60, 1)
+        state = store_state.get_state(config.domain)
+        if not state.active:
+            print(f"[{config.label}] AVISO: desactivada (store.active = false), se omite")
+            failed_stores.append((config.label, config.platform.value, "desactivada (store.active = false)"))
+            continue
+        if state.backoff_until and state.backoff_until > now:
+            wait_min = round((state.backoff_until - now) / 60, 1)
             print(f"[{config.label}] AVISO: en backoff tras fallos repetidos, quedan ~{wait_min} min")
             failed_stores.append((config.label, config.platform.value,
                                    f"en backoff tras fallos repetidos (~{wait_min} min restantes, ver A.3)"))

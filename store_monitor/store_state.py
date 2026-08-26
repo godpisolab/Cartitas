@@ -48,6 +48,11 @@ class StoreState:
     disallowed: bool = False                     # True si robots.txt prohíbe la URL que scrapeamos
     consecutive_failures: int = 0                # fallos seguidos entre ejecuciones (ver A.3)
     backoff_until: Optional[float] = None        # unix timestamp: no reintentar esta tienda antes de esto
+    # True por defecto (permisivo, igual que el resto de esta clase): antes
+    # de que exista una fila en `store` (primer ciclo) no hay ninguna razón
+    # para asumir que la tienda está desactivada. Cableado en run_all_stores
+    # (API v1, PATCH /stores/{id}) -- antes era una columna sin ningún efecto.
+    active: bool = True
 
 
 # domain (StoreState.website_url) -> nombre de columna en `store`.
@@ -57,6 +62,7 @@ _COLUMNS = {
     "disallowed": "disallowed",
     "consecutive_failures": "consecutive_failures",
     "backoff_until": "backoff_until",
+    "active": "active",
 }
 _TIMESTAMP_FIELDS = ("robots_checked_at", "backoff_until")
 
@@ -84,7 +90,8 @@ def get_state(domain: str) -> StoreState:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT crawl_delay_seconds, backoff_until, robots_checked_at, disallowed, consecutive_failures "
+                "SELECT crawl_delay_seconds, backoff_until, robots_checked_at, disallowed, "
+                "consecutive_failures, active "
                 "FROM store WHERE website_url = %s",
                 (domain,),
             )
@@ -99,13 +106,14 @@ def get_state(domain: str) -> StoreState:
     if row is None:
         return StoreState()
 
-    crawl_delay, backoff_until, robots_checked_at, disallowed, consecutive_failures = row
+    crawl_delay, backoff_until, robots_checked_at, disallowed, consecutive_failures, active = row
     return StoreState(
         robots_checked_at=_to_unix(robots_checked_at),
         crawl_delay=float(crawl_delay) if crawl_delay is not None else None,
         disallowed=bool(disallowed),
         consecutive_failures=consecutive_failures or 0,
         backoff_until=_to_unix(backoff_until),
+        active=bool(active),
     )
 
 

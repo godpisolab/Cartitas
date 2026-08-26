@@ -5,7 +5,7 @@ SQLAlchemy intente crearlo de nuevo al levantar la app."""
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from enum import Enum
 
 from sqlalchemy import Column
@@ -35,4 +35,8 @@ class Product(SQLModel, table=True):
     image_url: str | None = None
     is_hot: bool = False
     hot_until: date | None = None
-    created_at: datetime | None = None
+    # NOT NULL DEFAULT now() en el esquema -- default_factory en Python en
+    # vez de None: SQLModel envía un NULL explícito para un campo con
+    # default=None (no lo "omite" para que el DEFAULT de Postgres actúe),
+    # lo que violaría el NOT NULL en cualquier INSERT hecho vía este modelo.
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

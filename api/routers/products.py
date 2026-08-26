@@ -14,7 +14,14 @@ from db import get_session
 from models.product import ProductLanguage
 from pagination import MAX_LIMIT, build_link_header
 from schemas.common import Page
-from schemas.products import ProductFilters, ProductSummary
+from schemas.products import (
+    PriceHistorySeries,
+    ProductCreate,
+    ProductDetail,
+    ProductFilters,
+    ProductPatch,
+    ProductSummary,
+)
 
 router = APIRouter()
 
@@ -48,3 +55,41 @@ def list_products(
         response.headers["Link"] = link
 
     return result
+
+
+@router.get("/products/{product_id}", response_model=ProductDetail)
+def get_product(
+    product_id: int,
+    session: Session = Depends(get_session),
+    _: None = Depends(require_scope("read")),
+) -> ProductDetail:
+    return products_service.get_by_id(session, product_id)
+
+
+@router.get("/products/{product_id}/price-history", response_model=PriceHistorySeries)
+def get_product_price_history(
+    product_id: int,
+    storeId: int | None = Query(default=None),
+    session: Session = Depends(get_session),
+    _: None = Depends(require_scope("read")),
+) -> PriceHistorySeries:
+    return products_service.get_price_history(session, product_id, storeId)
+
+
+@router.post("/products", response_model=ProductDetail, status_code=201)
+def create_product(
+    body: ProductCreate,
+    session: Session = Depends(get_session),
+    _: None = Depends(require_scope("admin:*")),
+) -> ProductDetail:
+    return products_service.create_product(session, body)
+
+
+@router.patch("/products/{product_id}", response_model=ProductDetail)
+def patch_product(
+    product_id: int,
+    body: ProductPatch,
+    session: Session = Depends(get_session),
+    _: None = Depends(require_scope("admin:*")),
+) -> ProductDetail:
+    return products_service.patch_product(session, product_id, body)
