@@ -102,7 +102,17 @@ CREATE TABLE store_product (
     -- con stock/precio independientes por variante (caso Pokemillon, D.5) --
     -- sin raw_variant aquí, la segunda variante pisaría a la primera en vez
     -- de convivir como fila propia.
-    UNIQUE (store_id, store_url, raw_variant)
+    --
+    -- NULLS NOT DISTINCT (bug real encontrado 2026-08-26 al escribir los
+    -- tests de persistencia): en SQL estándar, UNIQUE trata cada NULL como
+    -- DISTINTO de cualquier otro NULL -- así que un UNIQUE normal aquí
+    -- nunca detectaría conflicto para raw_variant NULL, que es el caso de
+    -- TODAS las plataformas salvo Shopify (WooCommerce/PrestaShop/OpenCart/
+    -- Odoo/JSON-LD genérico nunca fijan variante). Sin este modificador,
+    -- cada re-scrape de esas tiendas crearía una fila store_product nueva
+    -- en vez de actualizar la existente -- duplicados sin límite, cada día,
+    -- en casi todas las tiendas. Requiere Postgres 15+.
+    UNIQUE NULLS NOT DISTINCT (store_id, store_url, raw_variant)
 );
 
 -- El top-3 de candidatos (C.3) ya NO se guarda como sugerencia única: se calcula en caliente en el
