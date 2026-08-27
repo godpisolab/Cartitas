@@ -312,9 +312,20 @@ class WooCommerceScraper(BaseStoreScraper):
                                      f"(acumulado {len(products)})")
 
                 for item in raw_items:
+                    name = item["name"]
+                    if self._looks_truncated(name) and item["url"]:
+                        detail_url = item["url"] if item["url"].startswith("http") \
+                            else f"{self.config.domain}{item['url']}"
+                        full_name = self._resolve_truncated_name(session, detail_url)
+                        if full_name:
+                            self.logger.log(f"nombre truncado en el listado, resuelto desde la ficha: "
+                                             f"{name!r} -> {full_name!r}")
+                            name = full_name
+                        time.sleep(self.delay)
+
                     products.append(self._make_product(
                         id_product=None,
-                        name=item["name"],
+                        name=name,
                         price=item["price"],
                         stock_status=item["stock_status"],
                         url=item["url"],
@@ -356,6 +367,41 @@ class WooCommerceScraper(BaseStoreScraper):
         if not match:
             return text
         return text[:match.start()].strip() or None
+
+    # Detecta títulos recortados en la vista de categoría -- por PATRÓN, no
+    # por tienda: cualquier tema WooCommerce que trunque el título en el
+    # listado y deje un marcador de "..." literal en el HTML dispara la
+    # misma resolución (verificado en Arte9/Madara, pero no exclusivo de
+    # esa tienda -- cualquier otra que tenga el mismo problema de tema se
+    # arregla sola, sin tocar este código).
+    _TRUNCATED_TITLE_RE = re.compile(r"(\.\s*){2,}$|…\s*$")
+
+    @classmethod
+    def _looks_truncated(cls, name: Optional[str]) -> bool:
+        return bool(name) and bool(cls._TRUNCATED_TITLE_RE.search(name))
+
+    def _resolve_truncated_name(self, session, url: str) -> Optional[str]:
+        """Visita la ficha individual para recuperar el título completo
+        cuando el listado lo trunca (ver _looks_truncated). `.product_title`
+        es la clase que añade la plantilla de producto individual del CORE
+        de WooCommerce (woocommerce_template_single_title()) -- a
+        diferencia de `.woocommerce-loop-product__title` (la del listado,
+        esa sí varía de tema en tema y es la que falla en Arte9/Madara),
+        esta no depende del tema. `h1`/`h1.entry-title` quedan como
+        fallback genérico si algún tema tan personalizado que ni siquiera
+        respeta esa clase del core.
+
+        Devuelve None (sin reventar el barrido) si la ficha no responde o
+        no trae ningún título reconocible -- el llamador se queda con el
+        nombre truncado original en ese caso, mejor que perder el producto
+        entero por un fallo puntual de una petición extra."""
+        resp = request_with_retries(session, url, heartbeat=self.logger.touch)
+        if resp is None or resp.status_code != 200:
+            return None
+        soup = BeautifulSoup(resp.text, "html.parser")
+        title_tag = soup.select_one(".product_title, h1.entry-title, h1")
+        full_name = title_tag.get_text(strip=True) if title_tag else None
+        return self._clean_leaked_markup(full_name)
 
     # Importe con símbolo € en cualquier orden ("12,95€" o "€ 12,95") --
     # usado por _extract_price para separar varios importes concatenados en

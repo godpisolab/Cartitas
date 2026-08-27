@@ -267,6 +267,93 @@ class TestCleanLeakedMarkup:
         assert WooCommerceScraper._clean_leaked_markup(None) is None
 
 
+class TestLooksTruncated:
+    def test_marcador_literal_punto_espacio_punto(self):
+        assert WooCommerceScraper._looks_truncated("BLACK STARTER DECK ONE PIECE & . . .") is True
+
+    def test_puntos_suspensivos_unicode(self):
+        assert WooCommerceScraper._looks_truncated("Nombre recortado…") is True
+
+    def test_puntos_suspensivos_ascii(self):
+        assert WooCommerceScraper._looks_truncated("Nombre recortado...") is True
+
+    def test_nombre_normal_no_es_truncado(self):
+        assert WooCommerceScraper._looks_truncated("Booster Box: Adventure on Kami's Island OP-15 EN") is False
+
+    def test_none_no_es_truncado(self):
+        assert WooCommerceScraper._looks_truncated(None) is False
+
+
+class TestResolverNombreTruncado:
+    """_scrape_via_html visita la ficha individual cuando el nombre del
+    listado viene truncado (docs/... -- caso real de Arte9/Madara, pero el
+    disparador es el patrón del nombre, no la tienda: cualquier otra tienda
+    WooCommerce con el mismo problema de tema se beneficia igual)."""
+
+    def test_nombre_truncado_se_resuelve_desde_la_ficha(self, requests_mock):
+        scraper = make_scraper(woocommerce_category_slug="one-piece")
+        requests_mock.get("https://tienda.example/wp-json/wc/store/v1/products", json=[])
+        requests_mock.get("https://tienda.example/wp-json/wc/store/products", json=[])
+        listado_html = """
+        <li class="product">
+            <a class="woocommerce-LoopProduct-link" href="https://tienda.example/producto/x">
+                <h2 class="woocommerce-loop-product__title">DOUBLE PACK SET VOL.11 &#8211; . . .</h2>
+            </a>
+            <span class="price">19,95€</span>
+        </li>
+        """
+        requests_mock.get("https://tienda.example/categoria-producto/one-piece/", text=listado_html)
+        ficha_html = '<h1 class="product_title entry-title">DOUBLE PACK SET VOL.11 – THE TIME OF BATTLE</h1>'
+        requests_mock.get("https://tienda.example/producto/x", text=ficha_html)
+
+        products = scraper.scrape()
+
+        assert len(products) == 1
+        assert products[0].name == "DOUBLE PACK SET VOL.11 – THE TIME OF BATTLE"
+
+    def test_nombre_no_truncado_no_visita_la_ficha(self, requests_mock):
+        scraper = make_scraper(woocommerce_category_slug="one-piece")
+        requests_mock.get("https://tienda.example/wp-json/wc/store/v1/products", json=[])
+        requests_mock.get("https://tienda.example/wp-json/wc/store/products", json=[])
+        listado_html = """
+        <li class="product">
+            <a class="woocommerce-LoopProduct-link" href="https://tienda.example/producto/x">
+                <h2 class="woocommerce-loop-product__title">Booster Box OP-16 EN</h2>
+            </a>
+            <span class="price">19,95€</span>
+        </li>
+        """
+        requests_mock.get("https://tienda.example/categoria-producto/one-piece/", text=listado_html)
+        # A propósito SIN registrar https://tienda.example/producto/x -- si
+        # el scraper la visitara, requests_mock lanzaría NoMockAddress.
+
+        products = scraper.scrape()
+
+        assert products[0].name == "Booster Box OP-16 EN"
+
+    def test_si_la_ficha_falla_se_queda_con_el_nombre_truncado_original(self, requests_mock):
+        scraper = make_scraper(woocommerce_category_slug="one-piece")
+        requests_mock.get("https://tienda.example/wp-json/wc/store/v1/products", json=[])
+        requests_mock.get("https://tienda.example/wp-json/wc/store/products", json=[])
+        listado_html = """
+        <li class="product">
+            <a class="woocommerce-LoopProduct-link" href="https://tienda.example/producto/x">
+                <h2 class="woocommerce-loop-product__title">RED STARTER DECK ONE PIECE . . .</h2>
+            </a>
+            <span class="price">14,85€</span>
+        </li>
+        """
+        requests_mock.get("https://tienda.example/categoria-producto/one-piece/", text=listado_html)
+        requests_mock.get("https://tienda.example/producto/x", status_code=500)
+
+        products = scraper.scrape()
+
+        # No revienta el barrido ni descarta el producto -- se queda con lo
+        # que ya tenía del listado, un dato peor pero utilizable, en vez de
+        # nada.
+        assert products[0].name == "RED STARTER DECK ONE PIECE . . ."
+
+
 class TestExtractPrice:
     def _item(self, html):
         from bs4 import BeautifulSoup
