@@ -67,6 +67,29 @@ class TestAdminAuth:
         resp = client.get("/admin/matches", auth=admin_credentials)
         assert resp.status_code == 200
 
+    def test_sin_admin_configurado_credenciales_vacias_no_pasan(self, client, monkeypatch):
+        """Simula el despliegue donde nadie fijó ADMIN_USERNAME/ADMIN_PASSWORD
+        -- ambas quedan "" (default de config.py). Sin el check explícito de
+        cadena vacía en verify_admin, compare_digest("", "") sería True y
+        unas credenciales vacías (curl -u ":") entrarían como admin."""
+        import config
+        monkeypatch.setattr(config, "ADMIN_USERNAME", "")
+        monkeypatch.setattr(config, "ADMIN_PASSWORD", "")
+
+        resp = client.get("/admin/matches", auth=("", ""))
+
+        assert resp.status_code == 401
+
+    def test_sin_admin_configurado_escritura_tambien_bloqueada(self, session, client, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "ADMIN_USERNAME", "")
+        monkeypatch.setattr(config, "ADMIN_PASSWORD", "")
+        sp_id = seed_store_product(session)
+
+        resp = client.post(f"/admin/matches/{sp_id}/reject", data={"mark_as": "unmatched"}, auth=("", ""))
+
+        assert resp.status_code == 401
+
 
 class TestAdminListMatches:
     def test_lista_por_defecto_needs_review(self, session, client, admin_credentials):

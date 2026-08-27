@@ -16,6 +16,14 @@ security = HTTPBasic()
 
 
 def verify_admin(credentials: HTTPBasicCredentials = Depends(security)) -> None:
+    # Sin ADMIN_USERNAME/ADMIN_PASSWORD configurados, ambas quedan "" --
+    # sin este check, compare_digest("", "") es True y unas credenciales
+    # vacías (curl -u ":") entrarían como admin. A diferencia de API_KEYS
+    # (dict vacío, ninguna key coincide por accidente), "" sí es un valor
+    # que puede coincidir consigo mismo -- hay que descartarlo explícitamente.
+    if not config.ADMIN_USERNAME or not config.ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Panel no configurado", headers={"WWW-Authenticate": "Basic"})
+
     # secrets.compare_digest en vez de `==` -- comparación en tiempo
     # constante, evita timing attacks triviales sobre la contraseña.
     correct_user = secrets.compare_digest(credentials.username, config.ADMIN_USERNAME)

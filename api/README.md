@@ -79,7 +79,7 @@ main.py (junta routers, registra el exception handler, CORS)
 
 HTML server-rendered (Jinja2 + htmx) dentro del propio proceso de `api/`, no una SPA aparte -- decisión y por qué en `docs/frontend-arquitectura-decidida.md` sección 3, cómo se organiza en `docs/estandares-implementacion-frontend.md` parte 2.
 
-- `admin/auth.py` -- HTTP Basic (`ADMIN_USERNAME`/`ADMIN_PASSWORD`), mecanismo distinto del Bearer+scope de `auth.py`. Aplicado una única vez en `main.py` (`dependencies=[Depends(verify_admin)]` sobre todo el router de `/admin`), nunca a mano dentro de una ruta.
+- `admin/auth.py` -- HTTP Basic (`ADMIN_USERNAME`/`ADMIN_PASSWORD`), mecanismo distinto del Bearer+scope de `auth.py`. Aplicado una única vez en `main.py` (`dependencies=[Depends(verify_admin)]` sobre todo el router de `/admin`), nunca a mano dentro de una ruta. **Falla cerrado si no se configuran las variables** -- sin esto, `ADMIN_USERNAME`/`ADMIN_PASSWORD` a `""` (default sin configurar) haría que `compare_digest("", "")` fuera `True` y unas credenciales vacías (`curl -u ":"`) entraran como admin; `verify_admin()` rechaza explícitamente el caso "ninguna de las dos está configurada" antes de comparar.
 - `admin/routes/matches.py` -- llama a `services/matches.py` directamente, sin pasar por HTTP ni por ninguna API key.
 - Implementado hasta ahora: `GET /admin/matches` (listado, filtro `status`) + `POST /admin/matches/{id}/confirm|reject|reopen` (cada uno devuelve el fragmento `_row.html` que htmx intercambia en la fila). Pendiente: replicar el mismo patrón a `products`/`stores` del panel.
 - CSS mínimo sin build step en `admin/static/`; IP allowlist deliberadamente fuera de `api/` (vive en el reverse proxy de despliegue, aún sin decidir).
@@ -103,7 +103,7 @@ Misma `cartitas_test` que usa `store_monitor/tests/` (mismo contenedor, mismo es
 pytest --cov=. --cov-report=term-missing --cov-config=<(printf '[run]\nomit = tests/*,conftest.py')
 ```
 
-150 tests, 99% de cobertura. Un fichero de test por área funcional, cada uno con una clase de tests de `services/` (integración contra Postgres real, sin mocks de la sesión) y otra de `routers/` (`TestClient` contra la misma BBDD -- auth, `camelCase` de verdad en el JSON, códigos de estado, `problem+json`):
+152 tests, 99% de cobertura. Un fichero de test por área funcional, cada uno con una clase de tests de `services/` (integración contra Postgres real, sin mocks de la sesión) y otra de `routers/` (`TestClient` contra la misma BBDD -- auth, `camelCase` de verdad en el JSON, códigos de estado, `problem+json`):
 
 - `test_products_service.py` / `test_products_router.py` -- búsqueda, ficha, histórico, alta/edición de administración.
 - `test_deals.py`, `test_restock_events.py`, `test_catalog.py`, `test_stores.py`, `test_subscriptions.py`, `test_matches.py`.
