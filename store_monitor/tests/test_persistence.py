@@ -19,10 +19,10 @@ def make_config(label="Tienda", domain="https://tienda.example", platform=Platfo
 
 
 def make_product(store="Tienda", url="https://tienda.example/p1", name="Producto",
-                  variant=None, price=10.0, stock_status="DISPONIBLE", sku=None):
+                  variant=None, price=10.0, stock_status="DISPONIBLE", sku=None, tags=None):
     return Product(store=store, platform="shopify", id_product=None, name=name, variant=variant,
                     product_type="OTROS", main_set=None, set_code=None, language=None,
-                    price=price, stock_status=stock_status, url=url, sku=sku, image_url=None)
+                    price=price, stock_status=stock_status, url=url, sku=sku, image_url=None, tags=tags)
 
 
 def seed_product(conn, is_hot=False) -> int:
@@ -183,6 +183,52 @@ class TestSaveOneStoreRestock:
         )
         db_conn.commit()
         assert restock_ids == []
+
+
+class TestRawTags:
+    """raw_tags (2026-08-27) -- señal estructurada opcional para
+    classify_product(), de momento solo Shopify la rellena (Product.tags)."""
+
+    def test_tags_se_persiste_en_raw_tags(self, db_conn):
+        store_id = list(persistence.sync_stores(db_conn, [make_config()]).values())[0]
+        db_conn.commit()
+
+        persistence._save_one_store(
+            db_conn, store_id, [make_product(tags="Cajas, Cajas de Sobres")], date.today(),
+        )
+        db_conn.commit()
+
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT raw_tags FROM store_product")
+            assert cur.fetchone()[0] == "Cajas, Cajas de Sobres"
+
+    def test_sin_tags_raw_tags_queda_null(self, db_conn):
+        store_id = list(persistence.sync_stores(db_conn, [make_config()]).values())[0]
+        db_conn.commit()
+
+        persistence._save_one_store(db_conn, store_id, [make_product()], date.today())
+        db_conn.commit()
+
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT raw_tags FROM store_product")
+            assert cur.fetchone()[0] is None
+
+    def test_reescaneo_actualiza_raw_tags_via_on_conflict(self, db_conn):
+        # ON CONFLICT DO UPDATE debe incluir raw_tags -- si el comerciante
+        # cambia sus tags entre barridos, la siguiente pasada de
+        # run_matching() debe ver el valor nuevo, no el guardado la vez
+        # anterior.
+        store_id = list(persistence.sync_stores(db_conn, [make_config()]).values())[0]
+        db_conn.commit()
+
+        persistence._save_one_store(db_conn, store_id, [make_product(tags="Tag viejo")], date.today())
+        db_conn.commit()
+        persistence._save_one_store(db_conn, store_id, [make_product(tags="Tag nuevo")], date.today())
+        db_conn.commit()
+
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT raw_tags FROM store_product")
+            assert cur.fetchone()[0] == "Tag nuevo"
 
 
 class TestPriceHistory:

@@ -77,6 +77,7 @@ class RejectBody(CamelModel):
 
 class MissingCandidateItem(CamelModel):
     product_type: str
+    set_code: str | None
     main_set: str | None
     language: str | None
     store_count: int

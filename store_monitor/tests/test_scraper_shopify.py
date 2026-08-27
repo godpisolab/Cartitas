@@ -30,14 +30,17 @@ def variant(title="Default Title", price="10.00", available=True, sku="SKU1"):
     return {"title": title, "price": price, "available": available, "sku": sku}
 
 
-def product_item(title="Booster OP16", handle="booster-op16", variants=None, images=None):
-    return {
+def product_item(title="Booster OP16", handle="booster-op16", variants=None, images=None, tags=None):
+    item = {
         "id": 1,
         "title": title,
         "handle": handle,
         "images": images if images is not None else [{"src": "https://tienda.example/img.jpg"}],
         "variants": variants if variants is not None else [variant()],
     }
+    if tags is not None:
+        item["tags"] = tags
+    return item
 
 
 class TestShopifyScraper:
@@ -68,6 +71,55 @@ class TestShopifyScraper:
         assert statuses["Inglés"] == "DISPONIBLE"
         assert statuses["Japonés"] == "AGOTADO"
         assert "stock mixto" in (scraper.logger.last_error or "")
+
+    def test_tags_del_comerciante_se_pasan_como_type_hint_y_se_persisten(self, requests_mock):
+        # 2026-08-27: verificado en vivo contra Pokemillon real que su
+        # product_type nativo de Shopify viene vacío, pero tags sí trae
+        # señal fiable -- se usa como type_hint de classify_product() y se
+        # guarda en Product.tags (-> store_product.raw_tags).
+        scraper = make_scraper()
+        item = product_item(
+            title="One Piece OP13 Carrying On His Will",
+            tags="Caja One Piece, Cajas, Cajas de Sobres, OP-13 Carrying On His Will",
+        )
+        requests_mock.get(
+            "https://tienda.example/collections/one-piece/products.json",
+            [{"json": products_json([item])}, {"json": products_json([])}],
+        )
+        products = scraper.scrape()
+        assert len(products) == 1
+        assert products[0].tags == "Caja One Piece, Cajas, Cajas de Sobres, OP-13 Carrying On His Will"
+        assert products[0].product_type == "BOOSTER_BOX"
+
+    def test_tags_como_lista_json_se_normaliza_a_string(self, requests_mock):
+        # Regresión real (2026-08-27, ejecución completa contra 53 tiendas):
+        # 12 tiendas Shopify devuelven `tags` como lista JSON de strings, no
+        # como cadena separada por comas -- distinta versión/config del
+        # endpoint products.json según la tienda. Sin normalizar, esto
+        # petaba con AttributeError dentro de classify_product() y esas
+        # tiendas se perdían enteras (0 productos guardados).
+        scraper = make_scraper()
+        item = product_item(
+            title="One Piece OP13 Carrying On His Will",
+            tags=["Caja One Piece", "Cajas", "Cajas de Sobres"],
+        )
+        requests_mock.get(
+            "https://tienda.example/collections/one-piece/products.json",
+            [{"json": products_json([item])}, {"json": products_json([])}],
+        )
+        products = scraper.scrape()
+        assert len(products) == 1
+        assert products[0].tags == "Caja One Piece, Cajas, Cajas de Sobres"
+        assert products[0].product_type == "BOOSTER_BOX"
+
+    def test_sin_tags_del_comerciante_products_tags_es_none(self, requests_mock):
+        scraper = make_scraper()
+        requests_mock.get(
+            "https://tienda.example/collections/one-piece/products.json",
+            [{"json": products_json([product_item()])}, {"json": products_json([])}],
+        )
+        products = scraper.scrape()
+        assert products[0].tags is None
 
     def test_products_vacio_detiene_sin_pedir_siguiente_pagina(self, requests_mock):
         scraper = make_scraper()

@@ -20,7 +20,7 @@ Campos clave:
 - `is_hot` / `hot_until` — controlan la frecuencia de scraping (ver punto 4 de "Decisiones tomadas")
 
 ### `store`
-Cada una de las 53 tiendas. `platform` guarda qué scraper usar (woocommerce/prestashop/shopify/odoo/opencart/custom) — esto ya lo tienes de facto en tu `scraper_unificado.py`, aquí se formaliza como dato.
+Cada una de las 53 tiendas. `platform` guarda qué scraper usar (woocommerce/prestashop/shopify/odoo/opencart/generic_jsonld/custom) — esto ya lo tienes de facto en tu `scraper_unificado.py`, aquí se formaliza como dato.
 
 ### `store_product` (listado)
 El producto tal cual aparece en una tienda concreta: su URL, su nombre en crudo tal como lo escribió la tienda, su precio y stock *actuales*. Es la tabla que el scraper toca en cada pasada.

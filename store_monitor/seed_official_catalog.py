@@ -52,8 +52,23 @@ _BOOSTER_LABEL_SWAPS = [
     ("Premium Booster:", "Premium Booster Box:"),
 ]
 
+# Categorías con import japonés real y volumen significativo (2026-08-27,
+# investigación sobre multi_tienda_one_piece.csv real: 164/1536 filas --
+# 10.7% -- en JP, mayoritariamente boosters/cajas). El catálogo oficial de
+# Bandai (data/one_piece_tcg_products.json) es SOLO la versión EN --
+# product.language valía 'EN' para el 100% de las filas sembradas hasta
+# ahora, así que un store_product JP jamás podía llegar a `confirmed`
+# (language_matches siempre False, sin ningún candidato JP con el que
+# coincidir en absoluto -- no es que saliera en 2º lugar, no existía).
+# Empezar por estas dos -- se amplía a Starter Deck/Premium
+# Collection/etc. si aparece demanda JP real en la cola de revisión, no
+# antes (generar de más no rompe nada, un JP que ninguna tienda vende
+# nunca simplemente no tiene store_product que lo confirme; generar de
+# menos deja el mismo hueco de hoy para esa categoría).
+_JP_VARIANT_CATEGORY_SLUGS = {"booster-box", "booster-pack"}
 
-def _build_name(name: str, code: str | None) -> str:
+
+def _build_name(name: str, code: str | None, language: str = "EN") -> str:
     """Construye un texto 'al estilo raw_name de tienda' -- nombre + código
     + idioma -- para que classify_product() derive category/main_set/
     set_code exactamente igual que lo haría de un raw_name real scrapeado."""
@@ -62,7 +77,7 @@ def _build_name(name: str, code: str | None) -> str:
         # Códigos partidos como "OP-14 / EB-04 (parte 1)" -- solo el primer
         # código real importa para los regex de main_set/set_code.
         parts.append(code.split("/")[0].strip())
-    parts.append("EN")  # todo el catálogo fuente es la versión EN oficial
+    parts.append(language)
     return " ".join(parts)
 
 
@@ -92,6 +107,43 @@ def seed_from_catalog(conn, catalog_path: Path = CATALOG_PATH) -> dict:
     skipped: list[str] = []
     already_existed: list[str] = []
 
+    def _insert_if_new(cur, name: str, code: str | None, language: str) -> str | None:
+        """Clasifica+inserta una variante de idioma concreta -- devuelve el
+        category_slug si se insertó/ya existía (para que el llamador sepa
+        si vale la pena generar también la variante JP), None si se omitió
+        (sin categoría en D.2)."""
+        built_name = _build_name(name, code, language)
+        classification = classify_product(built_name)
+
+        if classification.product_type in NOT_APPLICABLE_PRODUCT_TYPES:
+            skipped.append(built_name)
+            return None
+
+        category_slug = PRODUCT_TYPE_TO_CATEGORY_SLUG.get(classification.product_type)
+        category_id = category_ids.get(category_slug) if category_slug else None
+        if category_id is None:
+            skipped.append(built_name)
+            return None
+
+        cur.execute(
+            "SELECT 1 FROM product WHERE game_id = %s AND name_canonical = %s",
+            (game_id, built_name),
+        )
+        if cur.fetchone():
+            already_existed.append(built_name)
+            return category_slug
+
+        cur.execute(
+            """
+            INSERT INTO product (game_id, category_id, set_code, main_set, language, name_canonical)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (game_id, category_id, classification.set_code, classification.main_set,
+             classification.language, built_name),
+        )
+        inserted.append(built_name)
+        return category_slug
+
     with conn.cursor() as cur:
         for item in catalog["products"]:
             name_code_pairs = [(item["name"], item["code"])]
@@ -100,36 +152,13 @@ def seed_from_catalog(conn, catalog_path: Path = CATALOG_PATH) -> dict:
                 name_code_pairs.append((box_name, item["code"]))
 
             for name, code in name_code_pairs:
-                built_name = _build_name(name, code)
-                classification = classify_product(built_name)
-
-                if classification.product_type in NOT_APPLICABLE_PRODUCT_TYPES:
-                    skipped.append(built_name)
-                    continue
-
-                category_slug = PRODUCT_TYPE_TO_CATEGORY_SLUG.get(classification.product_type)
-                category_id = category_ids.get(category_slug) if category_slug else None
-                if category_id is None:
-                    skipped.append(built_name)
-                    continue
-
-                cur.execute(
-                    "SELECT 1 FROM product WHERE game_id = %s AND name_canonical = %s",
-                    (game_id, built_name),
-                )
-                if cur.fetchone():
-                    already_existed.append(built_name)
-                    continue
-
-                cur.execute(
-                    """
-                    INSERT INTO product (game_id, category_id, set_code, main_set, language, name_canonical)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    """,
-                    (game_id, category_id, classification.set_code, classification.main_set,
-                     classification.language, built_name),
-                )
-                inserted.append(built_name)
+                category_slug = _insert_if_new(cur, name, code, "EN")
+                # Variante JP (ver _JP_VARIANT_CATEGORY_SLUGS) -- solo si la
+                # versión EN sí tiene categoría reconocida, mismo criterio
+                # que ya usa el resto del script para "vale la pena
+                # sembrarlo".
+                if category_slug in _JP_VARIANT_CATEGORY_SLUGS:
+                    _insert_if_new(cur, name, code, "JP")
 
     conn.commit()
     return {

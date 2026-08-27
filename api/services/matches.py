@@ -108,16 +108,38 @@ def _top_candidates(
         set_code_match = case((Product.set_code == set_code, 1), else_=0)
         order_by.insert(0, set_code_match.desc())
     rows = session.exec(
-        select(Product.id, Product.name_canonical, similarity.label("score"))
+        select(Product.id, Product.name_canonical, Product.set_code, similarity.label("score"))
         .where(Product.category_id == category_id)
         .order_by(*order_by)
         .limit(TOP_CANDIDATES_LIMIT)
     ).all()
-    return [MatchCandidate(product_id=pid, name_canonical=name, similarity=float(score)) for pid, name, score in rows]
+
+    # Fallback cross-categoría por set_code exacto (2026-08-27, mismo caso
+    # PRB02 que matcher._best_candidate): si ningún candidato de la
+    # categoría derivada trae el set_code exacto, se añade también el
+    # mejor candidato de TODO el catálogo con ese set_code -- para que la
+    # cola de revisión muestre el canónico correcto aunque la tienda lo
+    # haya clasificado en una categoría distinta a como se sembró.
+    if set_code and not any(sc == set_code for _, _, sc, _ in rows):
+        cross_category_row = session.exec(
+            select(Product.id, Product.name_canonical, Product.set_code, similarity.label("score"))
+            .where(Product.set_code == set_code)
+            .order_by(similarity.desc())
+            .limit(1)
+        ).first()
+        if cross_category_row is not None:
+            rows = [cross_category_row, *rows][:TOP_CANDIDATES_LIMIT]
+
+    return [
+        MatchCandidate(product_id=pid, name_canonical=name, similarity=float(score))
+        for pid, name, _set_code, score in rows
+    ]
 
 
-def _candidates_for(session: Session, raw_name: str, raw_variant: str | None) -> list[MatchCandidate]:
-    classification, category_slug = classify_with_category(raw_name, raw_variant)
+def _candidates_for(
+    session: Session, raw_name: str, raw_variant: str | None, raw_tags: str | None = None,
+) -> list[MatchCandidate]:
+    classification, category_slug = classify_with_category(raw_name, raw_variant, raw_tags)
     category_id = _category_id_for_slug(session, category_slug)
     return _top_candidates(session, category_id, raw_name, classification.set_code)
 
@@ -166,7 +188,7 @@ def list_matches(session: Session, filters: MatchFilters) -> Page[MatchItem]:
             items.append(_to_item(store_product, store, candidates=[]))
             continue
 
-        candidates = _candidates_for(session, store_product.raw_name, store_product.raw_variant)
+        candidates = _candidates_for(session, store_product.raw_name, store_product.raw_variant, store_product.raw_tags)
         best_score = candidates[0].similarity if candidates else None
 
         if filters.min_similarity is not None and (best_score is None or best_score < filters.min_similarity):
@@ -191,7 +213,7 @@ def confirm_match(session: Session, store_product_id: int, body: ConfirmBody) ->
     # VIGENTES al confirmar (docs/api-endpoints-v1.md sección 6) -- permite
     # distinguir después "el algoritmo ya acertaba" de "elección manual
     # pura", útil para calibrar los umbrales de C.2 con datos reales.
-    candidates = _candidates_for(session, store_product.raw_name, store_product.raw_variant)
+    candidates = _candidates_for(session, store_product.raw_name, store_product.raw_variant, store_product.raw_tags)
     matching_candidate = next((c for c in candidates if c.product_id == body.product_id), None)
 
     store_product.match_status = MatchStatus.CONFIRMED
@@ -238,30 +260,40 @@ def reopen_match(session: Session, store_product_id: int) -> MatchItem:
     session.refresh(store_product)
 
     store = session.get(Store, store_product.store_id)
-    candidates = _candidates_for(session, store_product.raw_name, store_product.raw_variant)
+    candidates = _candidates_for(session, store_product.raw_name, store_product.raw_variant, store_product.raw_tags)
     return _to_item(store_product, store, candidates)
 
 
 def missing_candidates(session: Session, min_stores: int) -> list[MissingCandidateItem]:
     """Puerto de matcher.find_missing_canonical_candidates() (C.1) sobre
-    SQLModel -- agrupa lo NO confirmado por (product_type, main_set,
-    language) derivados de raw_name/raw_variant, e ignora combinaciones
-    donde ya existe un product candidato en esa categoría+main_set."""
+    SQLModel -- agrupa lo NO confirmado por (product_type, set_code,
+    language) derivados de raw_name/raw_variant/raw_tags, e ignora
+    combinaciones donde ya existe un product candidato en esa
+    categoría+set_code.
+
+    set_code, no main_set (2026-08-27, mismo motivo que
+    matcher.find_missing_canonical_candidates): Double Pack e Illustration
+    Box tienen set_code propio pero main_set=NULL en sus canónicos --
+    agrupar/comprobar por main_set generaba falsos positivos. main_set se
+    sigue derivando por grupo solo para prellenar el formulario de alta
+    (sección 1.3), nunca para decidir si ya existe candidato."""
     rows = session.exec(
-        select(StoreProduct.store_id, StoreProduct.raw_name, StoreProduct.raw_variant)
+        select(StoreProduct.store_id, StoreProduct.raw_name, StoreProduct.raw_variant, StoreProduct.raw_tags)
         .where(StoreProduct.match_status != MatchStatus.CONFIRMED)
     ).all()
 
     groups: dict[tuple, set[int]] = {}
-    for store_id, raw_name, raw_variant in rows:
-        classification = classify_product(raw_name, raw_variant)
+    main_sets: dict[tuple, str | None] = {}
+    for store_id, raw_name, raw_variant, raw_tags in rows:
+        classification = classify_product(raw_name, raw_variant, raw_tags)
         if classification.product_type in NOT_APPLICABLE_PRODUCT_TYPES:
             continue
-        key = (classification.product_type, classification.main_set, classification.language)
+        key = (classification.product_type, classification.set_code, classification.language)
         groups.setdefault(key, set()).add(store_id)
+        main_sets[key] = classification.main_set
 
     suggestions = []
-    for (product_type, main_set, language), store_ids in groups.items():
+    for (product_type, set_code, language), store_ids in groups.items():
         if len(store_ids) < min_stores:
             continue
 
@@ -271,13 +303,23 @@ def missing_candidates(session: Session, min_stores: int) -> list[MissingCandida
         if category_id is not None:
             has_candidate = session.exec(
                 select(Product.id).where(
-                    Product.category_id == category_id, Product.main_set.is_not_distinct_from(main_set),
+                    Product.category_id == category_id, Product.set_code.is_not_distinct_from(set_code),
                 )
+            ).first() is not None
+
+        # Mismo fallback cross-categoría que _top_candidates()/matcher.py
+        # (caso PRB02): un candidato con ese set_code exacto en OTRA
+        # categoría no es un hueco real del catálogo.
+        if not has_candidate and set_code is not None:
+            has_candidate = session.exec(
+                select(Product.id).where(Product.set_code == set_code)
             ).first() is not None
 
         if not has_candidate:
             suggestions.append(MissingCandidateItem(
-                product_type=product_type, main_set=main_set, language=language, store_count=len(store_ids),
+                product_type=product_type, set_code=set_code,
+                main_set=main_sets[(product_type, set_code, language)],
+                language=language, store_count=len(store_ids),
             ))
 
     return sorted(suggestions, key=lambda s: s.store_count, reverse=True)

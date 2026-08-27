@@ -48,6 +48,7 @@ def list_products(
 def new_product_form(
     request: Request,
     productType: str | None = Query(default=None),
+    setCode: str | None = Query(default=None),
     mainSet: str | None = Query(default=None),
     language: str | None = Query(default=None),
     session: Session = Depends(get_session),
@@ -64,7 +65,7 @@ def new_product_form(
     context.update({
         "mode": "create", "action": "/admin/products", "error": None,
         "selected_category_id": selected_category_id, "selected_language": language or "",
-        "name_canonical": "", "set_code": "", "main_set": mainSet or "", "image_url": "",
+        "name_canonical": "", "set_code": setCode or "", "main_set": mainSet or "", "image_url": "",
         "is_hot": False, "hot_until": "",
     })
     return templates.TemplateResponse(request, "products/form.html", context)

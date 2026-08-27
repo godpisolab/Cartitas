@@ -84,7 +84,19 @@ def _best_candidate(cur, category_id: int, raw_name: str, set_code: Optional[str
     dentro de una MISMA categoría+set_code puede convivir la variante caja
     y la de un sobre suelto ("Premium Booster"/"Premium Booster Box", ambas
     PRB-02, misma categoría premium-collection) -- sin esto, similarity()
-    puede preferir la variante equivocada."""
+    puede preferir la variante equivocada.
+
+    Fallback cross-categoría por set_code exacto (2026-08-27, caso real
+    PRB02 "The Best vol.2"): el canónico se sembró en premium-collection,
+    pero varias tiendas listan el mismo producto sin la palabra "Premium"
+    ("Caja PRB02", "Booster Box PRB02") -- classify_product() lo clasifica
+    entonces como BOOSTER_BOX, y la búsqueda de arriba, limitada a esa
+    categoría, nunca encuentra el canónico real. Si dentro de la categoría
+    derivada NINGÚN candidato trae el set_code exacto, se repite la
+    búsqueda en TODO el catálogo filtrando solo por ese set_code -- una
+    señal fuerte (PRB02, EB04, ST37... son códigos casi únicos) que no
+    arrastra falsos positivos de otra familia como sí lo haría una
+    búsqueda de texto libre sin categoría."""
     is_box = is_box_variant(raw_name)
     cur.execute(
         """
@@ -99,7 +111,28 @@ def _best_candidate(cur, category_id: int, raw_name: str, set_code: Optional[str
         """,
         (raw_name, category_id, set_code, is_box, is_box),
     )
-    return cur.fetchone()
+    row = cur.fetchone()
+    if row is not None and set_code is not None and row[1] == set_code:
+        return row  # ya hay un candidato con el set_code exacto en la categoría derivada
+
+    if set_code is not None:
+        cur.execute(
+            """
+            SELECT id, set_code, language, similarity(name_canonical, %s) AS score
+            FROM product
+            WHERE set_code = %s
+            ORDER BY
+                (%s IS NOT NULL AND (name_canonical ILIKE '%%box%%' OR name_canonical ILIKE '%%caja%%') = %s) DESC,
+                score DESC
+            LIMIT 1
+            """,
+            (raw_name, set_code, is_box, is_box),
+        )
+        cross_category_row = cur.fetchone()
+        if cross_category_row is not None:
+            return cross_category_row
+
+    return row
 
 
 def _evaluate(
@@ -176,11 +209,13 @@ def run_matching(conn) -> dict[str, int]:
     counts: dict[str, int] = defaultdict(int)
 
     with conn.cursor() as cur:
-        cur.execute("SELECT id, raw_name, raw_variant FROM store_product WHERE match_status != 'confirmed'")
+        cur.execute(
+            "SELECT id, raw_name, raw_variant, raw_tags FROM store_product WHERE match_status != 'confirmed'"
+        )
         rows = cur.fetchall()
 
-        for store_product_id, raw_name, raw_variant in rows:
-            classification, category_slug = classify_with_category(raw_name, raw_variant)
+        for store_product_id, raw_name, raw_variant, raw_tags in rows:
+            classification, category_slug = classify_with_category(raw_name, raw_variant, raw_tags)
             outcome = _evaluate(cur, category_ids, classification, category_slug, raw_name)
             cur.execute(
                 """
@@ -198,12 +233,21 @@ def run_matching(conn) -> dict[str, int]:
 
 def find_missing_canonical_candidates(conn, min_stores: int = 2) -> list[dict]:
     """C.1: agrupa los store_product SIN match confirmado por
-    (product_type, main_set, language) derivados de su raw_name. Si varias
+    (product_type, set_code, language) derivados de su raw_name. Si varias
     tiendas DISTINTAS venden algo que parece el mismo producto y no hay
-    ningún `product` candidato en esa categoría+main_set, es una señal de
+    ningún `product` candidato en esa categoría+set_code, es una señal de
     que falta sembrar un canónico -- pensado para que el futuro panel de
     revisión lo muestre como sugerencia de alta ("6 tiendas venden algo que
     parece OP17 Booster Box EN y no existe en el catálogo -- ¿lo creamos?").
+
+    set_code, no main_set (2026-08-27): main_set solo se rellena para
+    releases con código "OP-NN" -- Double Pack (DP-NN) e Illustration Box
+    (Vol.N -> VOL-NN) tienen set_code propio pero main_set=NULL en sus
+    canónicos (verificado en la BBDD real), así que agrupar/comprobar por
+    main_set generaba falsos positivos: 10 de 18 sugerencias eran productos
+    que YA existían en el catálogo, solo que con main_set NULL. set_code es
+    el campo que matcher._evaluate()/_best_candidate() ya usan como
+    identidad real de emparejamiento -- aquí se sigue el mismo criterio.
 
     No crea nada automáticamente -- solo reporta. Ignora LOTE_CARTAS/OTROS
     (nunca tienen canónico) y agrupaciones con menos de `min_stores` tiendas
@@ -212,20 +256,22 @@ def find_missing_canonical_candidates(conn, min_stores: int = 2) -> list[dict]:
 
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT store_id, raw_name, raw_variant FROM store_product WHERE match_status != 'confirmed'"
+            "SELECT store_id, raw_name, raw_variant, raw_tags FROM store_product WHERE match_status != 'confirmed'"
         )
         rows = cur.fetchall()
 
         groups: dict[tuple, set] = defaultdict(set)
-        for store_id, raw_name, raw_variant in rows:
-            classification = classify_product(raw_name, raw_variant)
+        main_sets: dict[tuple, str | None] = {}
+        for store_id, raw_name, raw_variant, raw_tags in rows:
+            classification = classify_product(raw_name, raw_variant, raw_tags)
             if classification.product_type in NOT_APPLICABLE_PRODUCT_TYPES:
                 continue
-            key = (classification.product_type, classification.main_set, classification.language)
+            key = (classification.product_type, classification.set_code, classification.language)
             groups[key].add(store_id)
+            main_sets[key] = classification.main_set  # solo para mostrar/prellenar, no para la comprobación
 
         suggestions = []
-        for (product_type, main_set, language), store_ids in groups.items():
+        for (product_type, set_code, language), store_ids in groups.items():
             if len(store_ids) < min_stores:
                 continue
 
@@ -234,15 +280,25 @@ def find_missing_canonical_candidates(conn, min_stores: int = 2) -> list[dict]:
             has_candidate = False
             if category_id is not None:
                 cur.execute(
-                    "SELECT 1 FROM product WHERE category_id = %s AND main_set IS NOT DISTINCT FROM %s LIMIT 1",
-                    (category_id, main_set),
+                    "SELECT 1 FROM product WHERE category_id = %s AND set_code IS NOT DISTINCT FROM %s LIMIT 1",
+                    (category_id, set_code),
                 )
+                has_candidate = cur.fetchone() is not None
+
+            # Mismo fallback cross-categoría que _best_candidate() (caso
+            # PRB02): si no hay candidato en la categoría derivada pero SÍ
+            # existe un canónico con ese set_code exacto en OTRA categoría,
+            # no es un hueco real del catálogo -- es una tienda que
+            # clasificó el producto distinto a como se sembró.
+            if not has_candidate and set_code is not None:
+                cur.execute("SELECT 1 FROM product WHERE set_code = %s LIMIT 1", (set_code,))
                 has_candidate = cur.fetchone() is not None
 
             if not has_candidate:
                 suggestions.append({
                     "product_type": product_type,
-                    "main_set": main_set,
+                    "set_code": set_code,
+                    "main_set": main_sets[(product_type, set_code, language)],
                     "language": language,
                     "store_count": len(store_ids),
                 })

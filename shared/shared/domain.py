@@ -161,10 +161,23 @@ class Product:
     url: Optional[str]
     sku: Optional[str]
     image_url: Optional[str]
+    # Señal estructurada opcional para classify_product() (2026-08-27,
+    # investigación sobre multi_tienda_one_piece.csv real) -- de momento
+    # solo ShopifyScraper la rellena, desde el campo `tags` nativo del
+    # comerciante (cadena separada por comas, ej. "Cajas, Cajas de
+    # Sobres..."). None para el resto de plataformas y para cualquier
+    # Product construido sin pasarlo -- default al final para no romper
+    # ninguna construcción posicional/con kwargs existente.
+    tags: Optional[str] = None
 
     def to_dict(self) -> dict:
-        """Convierte a dict plano -- lo que espera csv.DictWriter en write_products_csv."""
-        return asdict(self)
+        """Convierte a dict plano -- lo que espera csv.DictWriter en
+        write_products_csv. Excluye `tags` a propósito: es una señal
+        interna para classify_product(), CSV_FIELDNAMES no la incluye y
+        csv.DictWriter revienta con claves de más que no declaró."""
+        data = asdict(self)
+        data.pop("tags", None)
+        return data
 
 
 @dataclass

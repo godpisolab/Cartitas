@@ -44,6 +44,10 @@ class StoreProduct(SQLModel, table=True):
     store_sku: str | None = None
     raw_name: str
     raw_variant: str | None = None
+    # Señal estructurada opcional para classify_product() (2026-08-27) --
+    # de momento solo Shopify la rellena (campo `tags` nativo del
+    # comerciante). NULL para el resto de plataformas.
+    raw_tags: str | None = None
     current_price: float | None = None
     stock_status: StockStatus = Field(
         default=StockStatus.DESCONOCIDO,

@@ -23,7 +23,7 @@ def seed_category(session, slug="booster-box"):
 
 def seed_store_product(session, *, raw_name="One Piece TCG OP16 Booster Box (EN)", store_name="Cardzone",
                         match_status="needs_review", product_id=None, reviewed_at=None,
-                        reviewed_reason=None) -> int:
+                        reviewed_reason=None, raw_tags=None) -> int:
     store_id = session.exec(
         text("INSERT INTO store (name, website_url, platform) VALUES (:n, :u, 'shopify') RETURNING id"),
         params={"n": store_name, "u": f"https://{store_name.lower()}.example"},
@@ -31,14 +31,14 @@ def seed_store_product(session, *, raw_name="One Piece TCG OP16 Booster Box (EN)
     sp_id = session.exec(
         text("""
             INSERT INTO store_product (store_id, product_id, match_status, store_url, raw_name,
-                                        current_price, stock_status, reviewed_at, reviewed_reason)
+                                        current_price, stock_status, reviewed_at, reviewed_reason, raw_tags)
             VALUES (:store_id, :product_id, :status, :url, :raw_name, 119.90, 'disponible',
-                    :reviewed_at, :reviewed_reason)
+                    :reviewed_at, :reviewed_reason, :raw_tags)
             RETURNING id
         """),
         params={"store_id": store_id, "product_id": product_id, "status": match_status,
                 "url": f"https://x.example/{store_id}", "raw_name": raw_name, "reviewed_at": reviewed_at,
-                "reviewed_reason": reviewed_reason},
+                "reviewed_reason": reviewed_reason, "raw_tags": raw_tags},
     ).first()[0]
     session.commit()
     return sp_id
@@ -269,6 +269,55 @@ class TestCandidatosPriorizanCajaVsSobre:
         assert result.data[0].candidates[0].product_id == sobre_id
 
 
+class TestCandidatosUsanRawTags:
+    """2026-08-27: el panel también usa raw_tags (Shopify), no solo el
+    matcher automático -- verificado en vivo contra Pokemillon real que su
+    product_type nativo viene vacío, pero tags sí trae señal fiable."""
+
+    def test_raw_tags_encuentra_candidato_que_raw_name_solo_no_encuentra(self, session):
+        category_id = seed_category(session, slug="booster-box")
+        correcto_id, _ = seed_product(
+            session, category_id=category_id,
+            name_canonical="Booster Box: Carrying On His Will OP-13 EN", set_code="OP13",
+        )
+        # "One Piece OP13 Carrying On His Will" a secas no tiene ninguna
+        # palabra de tipo -- sin raw_tags clasificaría OTROS y ni se
+        # calcularían candidatos.
+        seed_store_product(
+            session, raw_name="One Piece OP13 Carrying On His Will",
+            raw_tags="Caja One Piece, Cajas, Cajas de Sobres, OP-13 Carrying On His Will",
+        )
+
+        result = matches_service.list_matches(session, MatchFilters())
+
+        assert len(result.data) == 1
+        assert result.data[0].candidates[0].product_id == correcto_id
+
+
+class TestCandidatosFallbackCrossCategoriaPorSetCode:
+    """Caso real PRB02 (2026-08-27): el canónico "The Best vol.2" se
+    sembró en premium-collection, pero varias tiendas lo listan como
+    "Premium Booster PRB-02 Caja" (sin la palabra "vol"/"the best" que
+    dispara la regla de PREMIUM_COLLECTION) -- classify_product() lo
+    clasifica entonces como BOOSTER_BOX, categoría vacía para ese
+    set_code. Sin el fallback, la cola de revisión no mostraría el
+    canónico real entre los candidatos."""
+
+    def test_encuentra_el_candidato_de_otra_categoria_por_set_code_exacto(self, session):
+        seed_category(session, slug="booster-box")
+        premium_id = seed_category(session, slug="premium-collection")
+        prb_id, _ = seed_product(
+            session, category_id=premium_id,
+            name_canonical="Premium Booster Box: One Piece Card The Best vol.2 PRB-02 EN", set_code="PRB02",
+        )
+        seed_store_product(session, raw_name="One Piece Card Game Premium Booster PRB-02 Caja")
+
+        result = matches_service.list_matches(session, MatchFilters())
+
+        assert len(result.data) == 1
+        assert result.data[0].candidates[0].product_id == prb_id
+
+
 class TestConfirmMatch:
     def test_404_si_store_product_no_existe(self, session):
         with pytest.raises(NotFoundError):
@@ -401,8 +450,8 @@ class TestMissingCandidates:
 
         assert suggestions == []
 
-    def test_si_ya_existe_candidato_en_esa_categoria_main_set_no_aparece(self, session):
-        seed_product(session, main_set="OP17", name_canonical="Booster Box OP17 EN existente")
+    def test_si_ya_existe_candidato_en_esa_categoria_set_code_no_aparece(self, session):
+        seed_product(session, set_code="OP17", main_set="OP17", name_canonical="Booster Box OP17 EN existente")
         seed_store_product(session, raw_name="Booster Box OP17 EN", store_name="TiendaA")
         seed_store_product(session, raw_name="Booster Box OP17 EN", store_name="TiendaB")
 
@@ -410,9 +459,40 @@ class TestMissingCandidates:
 
         assert suggestions == []
 
+    def test_candidato_con_main_set_pero_set_code_null_no_evita_la_sugerencia(self, session):
+        # Regresión (2026-08-27): Double Pack/Illustration Box tienen
+        # set_code propio (DP-NN/VOL-NN) y main_set=NULL en la BBDD real --
+        # un candidato con main_set poblado pero set_code NULL para un
+        # grupo con set_code distinto NO debe contar como "ya existe".
+        seed_product(session, set_code=None, main_set="OP17", name_canonical="Otro producto sin set_code")
+        seed_store_product(session, raw_name="Booster Box OP17 EN", store_name="TiendaA")
+        seed_store_product(session, raw_name="Booster Box OP17 EN", store_name="TiendaB")
+
+        suggestions = matches_service.missing_candidates(session, min_stores=2)
+
+        assert len(suggestions) == 1
+        assert suggestions[0].set_code == "OP17"
+
     def test_lote_cartas_y_otros_se_ignoran(self, session):
         seed_store_product(session, raw_name="Lote de 50 cartas sueltas", store_name="TiendaA")
         seed_store_product(session, raw_name="Lote de 50 cartas sueltas", store_name="TiendaB")
+
+        suggestions = matches_service.missing_candidates(session, min_stores=2)
+
+        assert suggestions == []
+
+    def test_candidato_en_otra_categoria_con_el_mismo_set_code_no_genera_sugerencia(self, session):
+        # Caso real PRB02 (2026-08-27): canónico en premium-collection,
+        # pero la tienda se clasifica como BOOSTER_BOX (sin "the best"/
+        # "vol" en el texto) -- no es un hueco real del catálogo.
+        premium_id = seed_category(session, slug="premium-collection")
+        seed_category(session, slug="booster-box")
+        seed_product(
+            session, category_id=premium_id,
+            name_canonical="Premium Booster Box: One Piece Card The Best vol.2 PRB-02 EN", set_code="PRB02",
+        )
+        seed_store_product(session, raw_name="One Piece Card Game Premium Booster PRB-02 Caja", store_name="TiendaA")
+        seed_store_product(session, raw_name="One Piece Card Game Premium Booster PRB-02 Caja", store_name="TiendaB")
 
         suggestions = matches_service.missing_candidates(session, min_stores=2)
 

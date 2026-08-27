@@ -9,7 +9,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 -- Tipos ENUM — más seguros que VARCHAR libre, validados por la BBDD
 -- ============================================================
 CREATE TYPE product_language AS ENUM ('EN', 'JP', 'ES');
-CREATE TYPE store_platform AS ENUM ('woocommerce', 'prestashop', 'shopify', 'odoo', 'opencart', 'custom');
+CREATE TYPE store_platform AS ENUM ('woocommerce', 'prestashop', 'shopify', 'odoo', 'opencart', 'generic_jsonld', 'custom');
 -- 'not_applicable': asignado automáticamente por el pipeline de matching a LOTE_CARTAS/OTROS,
 -- que nunca tendrán un producto canónico razonable, no entran en la cola de revisión
 CREATE TYPE match_status_enum AS ENUM ('unmatched', 'needs_review', 'confirmed', 'not_applicable');
@@ -92,6 +92,13 @@ CREATE TABLE store_product (
     store_sku             VARCHAR(255),                              -- id_product/sku de la tienda; clave de respaldo más estable que store_url
     raw_name              VARCHAR(500) NOT NULL,
     raw_variant           VARCHAR(255),                              -- título de variante tal cual (idioma, grading...) para depurar casos como Pokemillon
+    -- Señal estructurada opcional para classify_product() (2026-08-27,
+    -- investigación sobre multi_tienda_one_piece.csv real) -- de momento
+    -- solo Shopify la trae (campo `tags` nativo del comerciante, cadena
+    -- separada por comas). NULL para el resto de plataformas. Se
+    -- re-deriva en cada pasada de matcher.run_matching() junto con
+    -- raw_name/raw_variant, no es una decisión guardada aparte.
+    raw_tags              TEXT,
     current_price         NUMERIC(10,2),
     stock_status          stock_status_enum NOT NULL DEFAULT 'desconocido',
     last_etag             VARCHAR(255),

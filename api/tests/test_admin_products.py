@@ -129,6 +129,17 @@ class TestAdminProductsNew:
         assert 'value="OP17"' in resp.text
         assert 'value="EN" selected' in resp.text
 
+    def test_formulario_alta_preellenado_con_set_code(self, client, admin_credentials):
+        # Double Pack/Illustration Box solo tienen set_code, no main_set
+        # (missing-candidates, ver services/matches.py) -- el enlace
+        # "Crear canónico" también debe prellenar ese campo.
+        resp = client.get(
+            "/admin/products/new?productType=DOUBLE_PACK&setCode=DP13&language=EN", auth=admin_credentials,
+        )
+
+        assert resp.status_code == 200
+        assert 'name="set_code" value="DP13"' in resp.text
+
 
 class TestAdminProductsCreate:
     def test_alta_producto_devuelve_redirect_a_la_ficha_de_edicion(self, session, client, admin_credentials):

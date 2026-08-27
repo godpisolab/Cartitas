@@ -181,7 +181,7 @@ class TestAdminMissingCandidates:
         resp = client.get("/admin/missing-candidates", auth=admin_credentials)
 
         assert resp.status_code == 200
-        assert "/admin/products/new?productType=BOOSTER_BOX&mainSet=OP17&language=EN" in resp.text
+        assert "/admin/products/new?productType=BOOSTER_BOX&setCode=OP17&mainSet=OP17&language=EN" in resp.text
 
     def test_requiere_credenciales(self, client):
         resp = client.get("/admin/missing-candidates")

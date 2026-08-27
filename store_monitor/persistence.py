@@ -144,6 +144,7 @@ def _save_one_store(conn, store_id: int, products: list[Product], scraped_date: 
                 _truncate(p.sku, 255, field="store_sku", context=p.url),
                 _truncate(p.name, 500, field="raw_name", context=p.url),
                 _truncate(p.variant, 255, field="raw_variant", context=p.url),
+                p.tags,  # TEXT, sin límite -- solo Shopify lo rellena (ver Product.tags)
                 p.price,
                 normalize_stock_status(p.stock_status),
                 etag,
@@ -155,12 +156,13 @@ def _save_one_store(conn, store_id: int, products: list[Product], scraped_date: 
             cur,
             """
             INSERT INTO store_product
-                (store_id, store_url, store_sku, raw_name, raw_variant, current_price, stock_status,
+                (store_id, store_url, store_sku, raw_name, raw_variant, raw_tags, current_price, stock_status,
                  last_etag, last_modified_header, last_checked_at)
             VALUES %s
             ON CONFLICT (store_id, store_url, raw_variant) DO UPDATE SET
                 store_sku = EXCLUDED.store_sku,
                 raw_name = EXCLUDED.raw_name,
+                raw_tags = EXCLUDED.raw_tags,
                 current_price = EXCLUDED.current_price,
                 stock_status = EXCLUDED.stock_status,
                 last_etag = EXCLUDED.last_etag,
@@ -169,7 +171,7 @@ def _save_one_store(conn, store_id: int, products: list[Product], scraped_date: 
             RETURNING id, store_url, raw_variant, product_id, current_price, stock_status
             """,
             upsert_rows,
-            template="(%s, %s, %s, %s, %s, %s, %s, %s, %s, now())",
+            template="(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())",
             fetch=True,
         )
 

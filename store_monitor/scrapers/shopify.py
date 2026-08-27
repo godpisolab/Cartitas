@@ -64,6 +64,23 @@ class ShopifyScraper(BaseStoreScraper):
         images = product.get("images") or [{}]
         image_url = images[0].get("src") if images else None
         variants = product.get("variants") or [{}]
+        # 2026-08-27: `tags` viene rellenado por el propio comerciante --
+        # verificado en vivo contra Pokemillon real que `product_type` (el
+        # campo "hecho para esto") viene SIEMPRE vacío, pero `tags` sí trae
+        # señal fiable ("Cajas, Cajas de Sobres..."). Se pasa como type_hint
+        # a _make_product, nunca se usa solo -- classify_product() ya
+        # prioriza name/variant si alguno trae una palabra de tipo clara.
+        #
+        # Normalizado a str SIEMPRE (2026-08-27, regresión real: al pasar
+        # de una lista real de 53 tiendas, 12 devolvían `tags` como lista
+        # JSON de strings, no como cadena separada por comas -- distinta
+        # versión/config del endpoint products.json según la tienda, no
+        # algo que dependa de nuestro código. classify_product() y
+        # Product.tags esperan siempre una cadena; sin este join(),
+        # extra_type_hint.lower() petaba con AttributeError y esas 12
+        # tiendas se perdían enteras).
+        raw_tags = product.get("tags")
+        tags = ", ".join(raw_tags) if isinstance(raw_tags, list) else raw_tags
 
         # Aviso: si un producto tiene variantes con disponibilidad distinta
         # (p.ej. Inglés agotado / Japonés disponible), el producto SÍ está
@@ -83,6 +100,7 @@ class ShopifyScraper(BaseStoreScraper):
                 sku=variant.get("sku"),
                 image_url=image_url,
                 variant_title=variant.get("title"),
+                type_hint=tags,
             )
             for variant in variants
         ]

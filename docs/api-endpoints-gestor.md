@@ -58,13 +58,15 @@ Deshace una confirmación equivocada. Parte de un `storeProduct` con `matchStatu
 ```json
 {
   "data": [
-    { "productType": "BOOSTER_BOX", "mainSet": "OP17", "language": "EN", "storeCount": 6 },
-    { "productType": "STARTER_DECK", "mainSet": null, "language": "JP", "storeCount": 3 }
+    { "productType": "BOOSTER_BOX", "setCode": "OP17", "mainSet": "OP17", "language": "EN", "storeCount": 6 },
+    { "productType": "STARTER_DECK", "setCode": "ST37", "mainSet": null, "language": "JP", "storeCount": 3 }
   ]
 }
 ```
 
-Es el input natural de `POST /products` (sección 2) — el panel puede mostrar esta lista con un botón "crear canónico" por fila, prellenando `productType`/`mainSet`/`language` en el formulario de alta. Sin filtro de paginación: en la práctica el volumen es bajo (agrupado por combinación, no por fila), y forzar paginación aquí sería complejidad sin necesidad real.
+Agrupa y comprueba existencia de candidato por `setCode`, no por `mainSet` (2026-08-27): Double Pack/Illustration Box tienen `setCode` propio pero `mainSet` NULL en sus canónicos -- agrupar por `mainSet` generaba falsos positivos (productos que ya existían). `mainSet` se sigue devolviendo, solo para prellenar el formulario de alta cuando aplica (familia OP). Además, si no hay candidato en la categoría derivada pero SÍ existe un canónico con ese `setCode` exacto en OTRA categoría, tampoco aparece como sugerencia (caso real: "PRB02 Booster Box" sin la palabra "Premium" se clasifica como BOOSTER_BOX, pero el canónico vive en premium-collection).
+
+Es el input natural de `POST /products` (sección 2) — el panel puede mostrar esta lista con un botón "crear canónico" por fila, prellenando `productType`/`setCode`/`mainSet`/`language` en el formulario de alta. Sin filtro de paginación: en la práctica el volumen es bajo (agrupado por combinación, no por fila), y forzar paginación aquí sería complejidad sin necesidad real.
 
 ---
 

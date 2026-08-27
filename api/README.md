@@ -106,7 +106,7 @@ Misma `cartitas_test` que usa `store_monitor/tests/` (mismo contenedor, mismo es
 pytest --cov=. --cov-report=term-missing --cov-config=<(printf '[run]\nomit = tests/*,conftest.py')
 ```
 
-192 tests, 99% de cobertura. Un fichero de test por área funcional, cada uno con una clase de tests de `services/` (integración contra Postgres real, sin mocks de la sesión) y otra de `routers/` (`TestClient` contra la misma BBDD -- auth, `camelCase` de verdad en el JSON, códigos de estado, `problem+json`):
+197 tests, 99% de cobertura. Un fichero de test por área funcional, cada uno con una clase de tests de `services/` (integración contra Postgres real, sin mocks de la sesión) y otra de `routers/` (`TestClient` contra la misma BBDD -- auth, `camelCase` de verdad en el JSON, códigos de estado, `problem+json`):
 
 - `test_products_service.py` / `test_products_router.py` -- búsqueda, ficha, histórico, alta/edición de administración.
 - `test_deals.py`, `test_restock_events.py`, `test_catalog.py`, `test_stores.py`, `test_subscriptions.py`, `test_matches.py`.

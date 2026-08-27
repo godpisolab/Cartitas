@@ -276,18 +276,22 @@ python3 seed_official_catalog.py
 
 Cada lanzamiento tipo booster se siembra dos veces (Booster Box + Booster Pack) porque las tiendas los venden como SKUs distintos con precios muy distintos. Los productos sin categoría en la taxonomía de 13 tipos (fundas, binders, cajas de almacenaje sueltas, sets de aniversario...) se omiten y se listan al final de la ejecución.
 
-Umbrales (aprobados 2026-08-26 como valores de partida, a calibrar con datos reales):
+Umbrales (aprobados 2026-08-26 como valores de partida, calibrados con datos reales el 2026-08-27 -- ver detalle completo en `docs/cambios-necesarios-scraper.md` sección C.2):
 
 | Condición | Resultado |
 |---|---|
-| `main_set` + tipo + idioma exactos, y `similarity > 0.6` | `confirmed` (`product_id` se rellena) |
-| `main_set` + tipo coinciden, `similarity` en `[0.35, 0.6)` (o idioma no coincide/no detectado) | `needs_review` |
-| `main_set` NO coincide (aunque el tipo sí), o `similarity < 0.35` | `unmatched` |
+| `set_code` + tipo + idioma exactos, y `similarity > 0.6` | `confirmed` (`product_id` se rellena) |
+| `set_code` + tipo coinciden, `similarity` en `[0.35, 0.6)` (o idioma no coincide) | `needs_review` |
+| `set_code` NO coincide (aunque el tipo sí), o `similarity < 0.35` | `unmatched` |
 | tipo `LOTE_CARTAS` u `OTROS` | `not_applicable` (nunca entra en el pipeline — ver `NOT_APPLICABLE_PRODUCT_TYPES`) |
 
-`run_matching()` reevalúa TODO lo que no esté ya `confirmed` en cada pasada (un `confirmed` es una decisión ya tomada, no se revierte sola). El top-3 de candidatos para el panel de revisión (aún no construido) **no se guarda** — se calcula en caliente vía `ORDER BY similarity(...) DESC LIMIT 3`, para no arrastrar una sugerencia obsoleta en cuanto se siembra un producto canónico nuevo más parecido.
+`set_code`, no `main_set` (corregido 2026-08-27): `main_set` solo está poblado para la familia `OP`, así que para el resto (`ST`/`DP`/`EB`/`PRB`/`DF`/Illustration Box/Playmat) el chequeo pasaba en falso y no protegía nada. `set_code` cubre las 6 familias.
 
-`matcher.find_missing_canonical_candidates()` agrupa lo no confirmado por `(tipo, main_set, idioma)` y reporta combinaciones que varias tiendas distintas venden pero que no tienen ningún candidato en el catálogo — pensado como la señal que alimentaría una futura sugerencia de alta en el panel de revisión, no crea nada automáticamente.
+Idioma no detectado ya no es ambigüedad (corregido 2026-08-27): `classify_product()` asume Inglés cuando ni el nombre ni la variante dicen el idioma -- es la variante que cualquier tienda vende por defecto; cuando venden JP, SIEMPRE lo marcan explícito. Única excepción: el texto "Non-English" se deja en ambiguo, no se asume EN. Antes de este cambio, 190 de 836 `needs_review` reales tenían `set_code` exacto y `similarity > 0.6` pero se quedaban sin confirmar solo por esto.
+
+`run_matching()` reevalúa TODO lo que no esté ya `confirmed` en cada pasada (un `confirmed` es una decisión ya tomada, no se revierte sola). El top-3 de candidatos para el panel de revisión **no se guarda** — se calcula en caliente vía `ORDER BY similarity(...) DESC LIMIT 3`, para no arrastrar una sugerencia obsoleta en cuanto se siembra un producto canónico nuevo más parecido. Si dentro de la categoría derivada del texto ningún candidato trae el `set_code` exacto, se repite la búsqueda en TODO el catálogo por ese `set_code` antes de rendirse (caso real: "PRB02 Booster Box" se clasifica como booster-box por texto, pero el canónico vive en premium-collection) — sigue pasando por el mismo umbral de similitud de texto, solo amplía dónde buscar.
+
+`matcher.find_missing_canonical_candidates()` agrupa lo no confirmado por `(tipo, set_code, idioma)` y reporta combinaciones que varias tiendas distintas venden pero que no tienen ningún candidato en el catálogo (ni en la categoría derivada ni en ninguna otra con ese `set_code`) — pensado como la señal que alimenta la vista `missing-candidates` del panel de revisión, no crea nada automáticamente.
 
 **Limitación real encontrada probando esto, resuelta (2026-08-27)**: Arte9 trunca los nombres en la vista de categoría (`"... . . ."`) antes de llegar al código de set al final del título real — `classify_product()` casi nunca podía extraer `main_set` de esos nombres, así que todo lo que no caía en `not_applicable` quedaba `unmatched`. `WooCommerceScraper._scrape_via_html()` (`scrapers/woocommerce.py`) ahora detecta por patrón (`_looks_truncated()`, no atado a ninguna tienda) cuando un nombre del listado viene recortado y visita la ficha individual del producto para recuperar el título completo vía `.product_title` — la clase que añade el CORE de WooCommerce en la plantilla de producto individual, no depende del tema (a diferencia de `.woocommerce-loop-product__title` del listado, que sí varía y es la que falla en el tema Madara de Arte9). Cualquier otra tienda WooCommerce con el mismo problema de tema se beneficia igual, sin tocar este código.
 
@@ -334,7 +338,7 @@ Tres jobs: `barrido_diario` (cron, 1x/día, reutiliza `main()` tal cual), `refre
 
 ## Tests
 
-294 tests (`pytest`), pirámide invertida a propósito respecto a un proyecto típico: el riesgo real aquí no es "se rompió la lógica de negocio pura" (barata de cubrir con unitarios), sino "una tienda cambió su HTML" o "el SQL no hace lo que creo" -- de ahí el peso en integración con HTTP mockeado y Postgres real, no solo mocks de todo.
+333 tests (`pytest`), pirámide invertida a propósito respecto a un proyecto típico: el riesgo real aquí no es "se rompió la lógica de negocio pura" (barata de cubrir con unitarios), sino "una tienda cambió su HTML" o "el SQL no hace lo que creo" -- de ahí el peso en integración con HTTP mockeado y Postgres real, no solo mocks de todo.
 
 ```bash
 pip install -r requirements-dev.txt

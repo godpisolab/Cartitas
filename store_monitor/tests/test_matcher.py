@@ -234,6 +234,49 @@ class TestBestCandidatePrioridadDeSetCode:
         assert candidato_para_caja[0] == caja_id
         assert candidato_para_sobre[0] == sobre_id
 
+    def test_fallback_cross_categoria_por_set_code_exacto(self, db_conn):
+        # Caso real (2026-08-27): el canónico PRB02 "The Best vol.2" se
+        # sembró en premium-collection, pero varias tiendas lo listan sin
+        # la palabra "Premium" ("Caja PRB02") -- classify_product() lo
+        # clasifica entonces como BOOSTER_BOX, categoría vacía para ese
+        # set_code. Sin el fallback, _best_candidate() nunca encontraría el
+        # canónico real por buscar solo dentro de booster-box.
+        booster_box_category_id = seed_category(db_conn, slug="booster-box")
+        premium_category_id = seed_category(db_conn, slug="premium-collection")
+        prb_id = self._seed_product(
+            db_conn, premium_category_id, "Premium Booster Box: One Piece Card The Best vol.2 PRB-02 EN", "PRB02",
+        )
+
+        with db_conn.cursor() as cur:
+            candidate = matcher._best_candidate(
+                cur, booster_box_category_id, "One Piece Card Game Premium Booster PRB-02 Caja", set_code="PRB02",
+            )
+
+        assert candidate is not None
+        assert candidate[0] == prb_id
+
+    def test_sin_fallback_si_la_categoria_derivada_ya_trae_el_set_code_exacto(self, db_conn):
+        # El fallback NO debe dispararse si ya hay un candidato correcto en
+        # la categoría derivada -- evita una consulta extra innecesaria.
+        category_id = seed_category(db_conn, slug="booster-box")
+        correcto_id = self._seed_product(db_conn, category_id, "Booster Box OP17 EN", "OP17")
+
+        with db_conn.cursor() as cur:
+            candidate = matcher._best_candidate(cur, category_id, "Booster Box OP17 EN", set_code="OP17")
+
+        assert candidate[0] == correcto_id
+
+    def test_fallback_no_dispara_sin_set_code(self, db_conn):
+        # Sin set_code detectado no hay señal fuerte con la que buscar
+        # cross-categoría -- se queda con lo que haya (o nada) en la
+        # categoría derivada, igual que antes de este cambio.
+        category_id = seed_category(db_conn, slug="booster-box")
+
+        with db_conn.cursor() as cur:
+            candidate = matcher._best_candidate(cur, category_id, "Producto sin código reconocible", set_code=None)
+
+        assert candidate is None
+
 
 # ===========================================================================
 # 6.2 -- Exclusión de tipos no comparables (C.5/D.3)
@@ -265,7 +308,7 @@ class TestExclusionNotApplicable:
 # ===========================================================================
 
 class TestRunMatchingEndToEnd:
-    def _seed_store_product(self, conn, raw_name, store_label="Tienda"):
+    def _seed_store_product(self, conn, raw_name, store_label="Tienda", tags=None):
         import persistence
         from shared.domain import Platform, Product, StoreConfig
         cfg = StoreConfig(store_label, f"https://{store_label.lower()}.example", Platform.SHOPIFY,
@@ -275,7 +318,7 @@ class TestRunMatchingEndToEnd:
         product = Product(store=store_label, platform="shopify", id_product=None, name=raw_name,
                            variant=None, product_type="", main_set=None, set_code=None, language=None,
                            price=10.0, stock_status="DISPONIBLE",
-                           url=f"https://{store_label.lower()}.example/p1", sku=None, image_url=None)
+                           url=f"https://{store_label.lower()}.example/p1", sku=None, image_url=None, tags=tags)
         persistence._save_one_store(conn, store_ids[cfg.domain], [product], __import__("datetime").date.today())
         conn.commit()
 
@@ -294,6 +337,36 @@ class TestRunMatchingEndToEnd:
         with db_conn.cursor() as cur:
             cur.execute("SELECT match_status FROM store_product")
             assert cur.fetchone()[0] == "not_applicable"
+
+    def test_run_matching_lee_raw_tags_de_bbdd_y_lo_usa_para_clasificar(self, db_conn):
+        # Integración completa (2026-08-27): raw_name a secas no trae
+        # ninguna palabra de tipo (quedaría OTROS/not_applicable) -- solo
+        # con las tags guardadas en BBDD (persistence -> raw_tags ->
+        # run_matching las lee -> classify_with_category las usa) llega a
+        # needs_review con un candidato real.
+        category_id = seed_category(db_conn)
+        with db_conn.cursor() as cur:
+            cur.execute("INSERT INTO game (name, slug) VALUES ('One Piece','one-piece') "
+                        "ON CONFLICT (slug) DO NOTHING")
+            cur.execute("SELECT id FROM game WHERE slug='one-piece'")
+            game_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO product (game_id, category_id, set_code, name_canonical) "
+                "VALUES (%s, %s, 'OP13', %s)",
+                (game_id, category_id, "Booster Box: Carrying On His Will OP-13 EN"),
+            )
+        db_conn.commit()
+
+        self._seed_store_product(
+            db_conn, "One Piece OP13 Carrying On His Will",
+            tags="Caja One Piece, Cajas, Cajas de Sobres, OP-13 Carrying On His Will",
+        )
+
+        matcher.run_matching(db_conn)
+
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT match_status FROM store_product")
+            assert cur.fetchone()[0] == "needs_review"
 
     def test_confirmed_no_se_reevalua_en_la_siguiente_pasada(self, db_conn):
         category_id = seed_category(db_conn)
@@ -335,7 +408,7 @@ class TestRunMatchingEndToEnd:
 # ===========================================================================
 
 class TestFindMissingCanonicalCandidates:
-    def _seed_store_product(self, conn, raw_name, store_label):
+    def _seed_store_product(self, conn, raw_name, store_label, tags=None):
         import persistence
         from shared.domain import Platform, Product, StoreConfig
         cfg = StoreConfig(store_label, f"https://{store_label.lower()}.example", Platform.SHOPIFY,
@@ -345,7 +418,7 @@ class TestFindMissingCanonicalCandidates:
         product = Product(store=store_label, platform="shopify", id_product=None, name=raw_name,
                            variant=None, product_type="", main_set=None, set_code=None, language=None,
                            price=10.0, stock_status="DISPONIBLE",
-                           url=f"https://{store_label.lower()}.example/p1", sku=None, image_url=None)
+                           url=f"https://{store_label.lower()}.example/p1", sku=None, image_url=None, tags=tags)
         persistence._save_one_store(conn, store_ids[cfg.domain], [product], __import__("datetime").date.today())
         conn.commit()
 
@@ -368,6 +441,26 @@ class TestFindMissingCanonicalCandidates:
 
         assert suggestions == []
 
+    def test_agrupa_usando_raw_tags_cuando_name_solo_no_basta(self, db_conn):
+        # Sin tags, "One Piece OP17 The World's Strongest Warriors" no
+        # tiene ninguna palabra de tipo -- clasificaría OTROS y ni
+        # aparecería en la agrupación (OTROS está en NOT_APPLICABLE).
+        seed_category(db_conn, slug="booster-box")
+        self._seed_store_product(
+            db_conn, "One Piece OP17 The World's Strongest Warriors", "TiendaA",
+            tags="Caja One Piece, Cajas, Cajas de Sobres",
+        )
+        self._seed_store_product(
+            db_conn, "One Piece OP17 The World's Strongest Warriors", "TiendaB",
+            tags="Caja One Piece, Cajas, Cajas de Sobres",
+        )
+
+        suggestions = matcher.find_missing_canonical_candidates(db_conn, min_stores=2)
+
+        assert len(suggestions) == 1
+        assert suggestions[0]["main_set"] == "OP17"
+        assert suggestions[0]["store_count"] == 2
+
     def test_si_ya_existe_candidato_no_genera_sugerencia(self, db_conn):
         category_id = seed_category(db_conn, slug="booster-box")
         with db_conn.cursor() as cur:
@@ -376,13 +469,68 @@ class TestFindMissingCanonicalCandidates:
             cur.execute("SELECT id FROM game WHERE slug='one-piece'")
             game_id = cur.fetchone()[0]
             cur.execute(
-                "INSERT INTO product (game_id, category_id, main_set, name_canonical) VALUES (%s, %s, 'OP17', 'x')",
+                "INSERT INTO product (game_id, category_id, set_code, main_set, name_canonical) "
+                "VALUES (%s, %s, 'OP17', 'OP17', 'x')",
                 (game_id, category_id),
             )
         db_conn.commit()
 
         self._seed_store_product(db_conn, "Booster Box OP17 EN", "TiendaA")
         self._seed_store_product(db_conn, "Booster Box OP17 EN", "TiendaB")
+
+        suggestions = matcher.find_missing_canonical_candidates(db_conn, min_stores=2)
+
+        assert suggestions == []
+
+    def test_candidato_con_main_set_pero_set_code_null_no_evita_la_sugerencia(self, db_conn):
+        # Regresión (2026-08-27): Double Pack/Illustration Box tienen
+        # set_code propio y main_set=NULL en la BBDD real -- un candidato
+        # con main_set poblado pero set_code NULL no debe contar como "ya
+        # existe" para un grupo con set_code distinto.
+        category_id = seed_category(db_conn, slug="booster-box")
+        with db_conn.cursor() as cur:
+            cur.execute("INSERT INTO game (name, slug) VALUES ('One Piece','one-piece') "
+                        "ON CONFLICT (slug) DO NOTHING")
+            cur.execute("SELECT id FROM game WHERE slug='one-piece'")
+            game_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO product (game_id, category_id, set_code, main_set, name_canonical) "
+                "VALUES (%s, %s, NULL, 'OP17', 'x')",
+                (game_id, category_id),
+            )
+        db_conn.commit()
+
+        self._seed_store_product(db_conn, "Booster Box OP17 EN", "TiendaA")
+        self._seed_store_product(db_conn, "Booster Box OP17 EN", "TiendaB")
+
+        suggestions = matcher.find_missing_canonical_candidates(db_conn, min_stores=2)
+
+        assert len(suggestions) == 1
+        assert suggestions[0]["set_code"] == "OP17"
+
+    def test_candidato_en_otra_categoria_con_el_mismo_set_code_no_genera_sugerencia(self, db_conn):
+        # Caso real PRB02 (2026-08-27): el canónico vive en
+        # premium-collection, pero las tiendas que no dicen "Premium" se
+        # clasifican como BOOSTER_BOX -- sin el fallback cross-categoría,
+        # esto aparecería como "falta sembrar" pese a que el producto ya
+        # existe con ese set_code exacto, solo que en otra categoría.
+        booster_box_id = seed_category(db_conn, slug="booster-box")
+        premium_id = seed_category(db_conn, slug="premium-collection")
+        with db_conn.cursor() as cur:
+            cur.execute("INSERT INTO game (name, slug) VALUES ('One Piece','one-piece') "
+                        "ON CONFLICT (slug) DO NOTHING")
+            cur.execute("SELECT id FROM game WHERE slug='one-piece'")
+            game_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO product (game_id, category_id, set_code, name_canonical) "
+                "VALUES (%s, %s, 'PRB02', 'Premium Booster Box: The Best vol.2 PRB-02 EN')",
+                (game_id, premium_id),
+            )
+        db_conn.commit()
+        assert booster_box_id  # categoría creada para que classify_with_category la resuelva
+
+        self._seed_store_product(db_conn, "One Piece Card Game Premium Booster PRB-02 Caja", "TiendaA")
+        self._seed_store_product(db_conn, "One Piece Card Game Premium Booster PRB-02 Caja", "TiendaB")
 
         suggestions = matcher.find_missing_canonical_candidates(db_conn, min_stores=2)
 

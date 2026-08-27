@@ -45,12 +45,18 @@ class BaseStoreScraper(ABC):
         return RefreshOutcome(status="not_supported", error=f"{cls.__name__} no soporta refresco individual todavía")
 
     def _make_product(self, *, id_product, name, price, stock_status, url, sku,
-                       image_url, variant_title: Optional[str] = None) -> Product:
+                       image_url, variant_title: Optional[str] = None,
+                       type_hint: Optional[str] = None) -> Product:
         """Clasifica (classify_product) y empaqueta los campos crudos de un
         producto en un Product normalizado -- todas las subclases pasan por
         aquí en vez de construir Product a mano, así la clasificación nunca
-        se les olvida."""
-        c = classify_product(name, variant_title)
+        se les olvida.
+
+        `type_hint` (2026-08-27): señal estructurada opcional adicional
+        para el TIPO -- de momento solo ShopifyScraper la rellena, desde el
+        campo `tags` nativo del comerciante. None para el resto (default),
+        classify_product() ya sabe degradar sin ella."""
+        c = classify_product(name, variant_title, type_hint)
         return Product(
             store=self.config.label,
             platform=self.config.platform.value,
@@ -66,4 +72,5 @@ class BaseStoreScraper(ABC):
             url=url,
             sku=sku,
             image_url=image_url,
+            tags=type_hint,
         )
