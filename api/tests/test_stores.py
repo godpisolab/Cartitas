@@ -15,13 +15,13 @@ from errors import NotFoundError
 from schemas.stores import StorePatch
 
 
-def seed_store(session, *, name="Cardzone", active=True) -> int:
+def seed_store(session, *, name="Cardzone", active=True, platform="shopify") -> int:
     row = session.exec(
         text("""
             INSERT INTO store (name, website_url, platform, active)
-            VALUES (:name, :url, 'shopify', :active) RETURNING id
+            VALUES (:name, :url, :platform, :active) RETURNING id
         """),
-        params={"name": name, "url": f"https://{name.lower()}.example", "active": active},
+        params={"name": name, "url": f"https://{name.lower()}.example", "active": active, "platform": platform},
     ).first()
     session.commit()
     return row[0]
@@ -34,6 +34,21 @@ class TestListStores:
         stores = stores_service.list_stores(session)
 
         assert stores[0].active is False
+
+    def test_lista_incluye_tienda_generic_jsonld(self, session):
+        # Regresión real (2026-08-27): StorePlatform (models/store.py) y su
+        # PGEnum nunca incluyeron 'generic_jsonld' pese a que la BBDD sí lo
+        # tiene desde que se añadió ese scraper -- cualquier listado que
+        # tocara una tienda con esa plataforma (NIKOCHAN ARENA, ISEKAI,
+        # Comic Stores) reventaba con LookupError/500, tanto en list_stores
+        # como en list_stores_detailed (panel de administración).
+        seed_store(session, name="NIKOCHAN ARENA", platform="generic_jsonld")
+
+        stores = stores_service.list_stores(session)
+        detailed = stores_service.list_stores_detailed(session)
+
+        assert stores[0].platform == "generic_jsonld"
+        assert detailed[0].platform == "generic_jsonld"
 
 
 class TestGetStore:

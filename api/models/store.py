@@ -17,6 +17,7 @@ class StorePlatform(str, Enum):
     SHOPIFY = "shopify"
     ODOO = "odoo"
     OPENCART = "opencart"
+    GENERIC_JSONLD = "generic_jsonld"
     CUSTOM = "custom"
 
 
@@ -29,7 +30,7 @@ class Store(SQLModel, table=True):
     sitemap_url: str | None = None
     platform: StorePlatform = Field(
         sa_column=Column(
-            PGEnum("woocommerce", "prestashop", "shopify", "odoo", "opencart", "custom",
+            PGEnum("woocommerce", "prestashop", "shopify", "odoo", "opencart", "generic_jsonld", "custom",
                    name="store_platform", create_type=False),
         ),
     )
