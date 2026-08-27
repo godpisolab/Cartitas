@@ -28,7 +28,7 @@
           <td>{{ item.category }}</td>
           <td>{{ item.set_code or "—" }}</td>
           <td>{{ item.language.value if item.language else "—" }}</td>
-          <td>{{ "%.2f"|format(item.min_price) }}</td>
+          <td>{{ "%.2f"|format(item.min_price) if item.min_price is not none else "—" }}</td>
           <td>{{ item.store_count }}</td>
           <td><a href="/admin/products/{{ item.id }}/edit">Editar</a></td>
         </tr>

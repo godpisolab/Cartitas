@@ -62,6 +62,18 @@ class TestSerializacionCamelCase:
         assert "data" in body and "meta" in body
         assert set(body["meta"]) == {"page", "limit", "total"}
 
+    def test_confirmado_sin_precio_responde_200_con_minprice_null(self, client, seed_listing, auth_headers):
+        # Bug real de producción (2026-08-27): un confirmado con
+        # current_price NULL (preventa, o el scraper no pudo parsear el
+        # precio) reventaba GET /products entero con un 500 --
+        # min_price=float(None) en services/products.py::search().
+        seed_listing(price=None)
+
+        resp = client.get("/products", headers=auth_headers)
+
+        assert resp.status_code == 200
+        assert resp.json()["data"][0]["minPrice"] is None
+
 
 class TestQueryParamsCamelCase:
     def test_set_code_min_price_max_price_is_hot_en_camelcase(self, client, seed_listing, auth_headers):

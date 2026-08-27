@@ -105,7 +105,7 @@ def search(session: Session, filters: ProductFilters) -> Page[ProductSummary]:
             category=category_slug,
             set_code=product.set_code,
             language=product.language,
-            min_price=float(min_price),
+            min_price=float(min_price) if min_price is not None else None,
             store_count=store_count,
             any_in_stock=any_in_stock,
         )

@@ -35,7 +35,11 @@ class ProductSummary(CamelModel):
     category: str
     set_code: str | None
     language: ProductLanguage | None
-    min_price: float
+    # Nullable, no float a secas -- un store_product confirmado puede tener
+    # current_price NULL (preventa, o el scraper no pudo parsear el precio
+    # esa pasada), y MIN() sobre un grupo así de NULLs es NULL, no 0 -- ver
+    # el mismo patrón ya aplicado en Listing.price más abajo.
+    min_price: float | None
     store_count: int
     any_in_stock: bool
 

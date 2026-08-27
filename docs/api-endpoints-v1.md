@@ -63,6 +63,8 @@ Errores de auth: `401` (falta la cabecera o la key no existe), `403` (key válid
 
 Solo cuentan `storeProduct` con `matchStatus = confirmed` para `minPrice`/`storeCount`/`anyInStock` — un `needsReview` no debe aparecer como si el vínculo ya estuviera confirmado.
 
+**Corregido (2026-08-27):** `minPrice` puede ser `null` -- un `storeProduct` confirmado con `currentPrice` sin parsear (preventa, o el scraper no pudo leer el precio esa pasada) hace que `MIN()` devuelva `NULL`. Bug real encontrado en producción: la implementación original asumía `minPrice` siempre numérico y reventaba el endpoint entero con `500` en cuanto existía un caso así -- corregido en `services/products.py`/`schemas/products.py` (`ProductSummary.min_price: float | None`).
+
 ### `GET /products/{id}`
 
 **Respuesta `200`:**

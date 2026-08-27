@@ -94,6 +94,19 @@ class TestAdminProductsList:
         assert resp.status_code == 200
         assert "Booster Box: The Time of Battle OP-16 EN" in resp.text
 
+    def test_listing_confirmado_sin_precio_no_revienta_la_pagina(self, session, client, admin_credentials):
+        # Bug real de producción (2026-08-27): un confirmado con
+        # current_price NULL (preventa, o el scraper no pudo parsear el
+        # precio) reventaba GET /admin/products entero con un 500 --
+        # min_price=float(None). Ver services/products.py::search().
+        product_id = seed_product(session)
+        seed_confirmed_listing(session, product_id, price=None)
+
+        resp = client.get("/admin/products", auth=admin_credentials)
+
+        assert resp.status_code == 200
+        assert "Booster Box: The Time of Battle OP-16 EN" in resp.text
+
     def test_busqueda_por_q_filtra(self, session, client, admin_credentials):
         producto_a = seed_product(session, name_canonical="Starter Deck Luffy ST-01 EN")
         producto_b = seed_product(session, name_canonical="Booster Box: The Time of Battle OP-16 EN")

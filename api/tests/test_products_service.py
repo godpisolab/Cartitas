@@ -72,6 +72,19 @@ class TestAgregadosEntreVariasTiendas:
 
         assert result.data[0].any_in_stock is True
 
+    def test_min_price_none_no_revienta_si_el_unico_confirmado_no_tiene_precio(self, session, seed_listing):
+        # Bug real encontrado en producción (2026-08-27): un store_product
+        # confirmado con current_price NULL (preventa, o el scraper no pudo
+        # parsear el precio esa pasada) hacía que MIN() devolviera NULL, y
+        # float(None) reventaba GET /products entero -- no solo este
+        # producto, la petición completa.
+        seed_listing(price=None)
+
+        result = products_service.search(session, ProductFilters())
+
+        assert len(result.data) == 1
+        assert result.data[0].min_price is None
+
 
 class TestFiltros:
     def test_filtro_por_game(self, session, seed_listing):
