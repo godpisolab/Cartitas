@@ -145,6 +145,8 @@ Accesorios
 
 `Lote de cartas` y `Otros` quedan **fuera de la jerarquía de categorías comparables** — ver D.3.
 
+**Hecho (2026-08-27, `docs/implementacion-auto-confirmado-setcode.md` 1.3/1.4):** el árbol de arriba quedó desactualizado -- son 14 tipos, no 13. `Booster Case` se añadió como hijo de `Sellado` (antes "Case" se quedaba sin categoría, atascado en `needs_review`). `Promo Card` se movió de hijo de `Sellado` a hijo de un padre nuevo `Single Card` (junto a `Sellado`/`Accesorios`) -- una carta individual no es "producto sellado" en el mismo sentido que una caja/sobre. Ver `seed-catalog-app-tcg.sql` para el árbol real actual.
+
 ### D.3. Nuevo valor en `match_status_enum`: `not_applicable`
 
 `LOTE_CARTAS` y `OTROS` (del punto C.5) no deberían generar trabajo de revisión indefinidamente en la cola — no es que "todavía no se han revisado" (`unmatched`), es que **nunca van a tener un producto canónico razonable**, son ruido esperado del scraping, no trabajo pendiente. Se propone añadir `not_applicable` al ENUM `match_status_enum` (hoy: `unmatched` / `needs_review` / `confirmed`), y que el propio pipeline de matching asigne ese valor automáticamente cuando `product_type` sea `LOTE_CARTAS` u `OTROS`, sin pasar nunca por la cola de revisión. El dato bruto se sigue guardando en `store_product` igual — solo se excluye del flujo de matching.

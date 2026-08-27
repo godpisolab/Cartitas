@@ -163,6 +163,21 @@ class TestClassifyProductTable:
             "OTROS", "EB02", "EN", None,
             id="codigo-eb-de-CARTA-INDIVIDUAL-eb02-003-no-dispara-el-fallback-de-booster",
         ),
+        pytest.param(
+            "(CASE) THE BEST 2 – PRB-02 – x10 Booster Box- One Piece Card Game", None,
+            "BOOSTER_CASE", "PRB02", "EN", None,
+            id="booster-case-parentesis-case",
+        ),
+        pytest.param(
+            "Case - Booster Box OP-16 The Time of Battle", None,
+            "BOOSTER_CASE", "OP16", "EN", "OP16",
+            id="booster-case-gana-a-booster-box-por-orden-de-lista",
+        ),
+        pytest.param(
+            "One Piece Card Game Booster Box Case ST-05", None,
+            "BOOSTER_CASE", "ST05", "EN", None,
+            id="booster-box-case-keyword-completa",
+        ),
     ]
 
     @pytest.mark.parametrize("name,variant_title,product_type,set_code,language,main_set", CASES)

@@ -8,14 +8,20 @@ Si el panel de revisión revela un patrón de error recurrente, la corrección
 es editar CLASSIFICATION_RULES a mano, no reentrenar nada.
 
 Umbrales (C.2, aprobados 2026-08-26 -- valores de partida, a calibrar con
-datos reales):
-- set_code + product_type + language exactos, y similarity > 0.6
-  -> 'confirmed' automático.
-- set_code + product_type coinciden, pero similarity en [0.35, 0.6)
-  (o el idioma no coincide/no se detectó) -> 'needs_review'.
+datos reales) y las cinco condiciones del auto-confirmado por set_code
+(implementacion-auto-confirmado-setcode.md, 2026-08-27):
+- Camino rápido: candidato PRIMARIO (no fallback cross-categoría, ver
+  _best_candidate) con set_code + product_type + language exactos y
+  cantidad no ambigua (ver shared.classify.cantidad_es_ambigua) ->
+  'confirmed' automático, SIN depender de la similitud de texto -- un
+  set_code exacto dentro de su propia categoría es señal suficiente.
+- Camino de siempre (sin las cinco condiciones arriba, típicamente sin
+  set_code detectable en algún lado): set_code + product_type coinciden y
+  similarity > 0.6 con idioma exacto -> 'confirmed'; similarity en
+  [0.35, 0.6) (o idioma no coincide/no detectado) -> 'needs_review'.
 - set_code NO coincide (aunque el product_type sí -- probablemente el mismo
   tipo de producto pero de OTRO lanzamiento, similitud de texto engañosa),
-  o similarity < 0.35 -> 'unmatched'.
+  o (sin set_code exacto) similarity < 0.35 -> 'unmatched'.
 
 (set_code en vez de main_set desde el 2026-08-27, revisión de la cola de
 matching -- main_set solo está poblado para la familia OP por diseño; ver
@@ -43,6 +49,7 @@ from typing import Optional
 from shared.classify import (
     NOT_APPLICABLE_PRODUCT_TYPES,
     PRODUCT_TYPE_TO_CATEGORY_SLUG,
+    cantidad_es_ambigua,
     classify_product,
     classify_with_category,
     is_box_variant,
@@ -96,7 +103,16 @@ def _best_candidate(cur, category_id: int, raw_name: str, set_code: Optional[str
     búsqueda en TODO el catálogo filtrando solo por ese set_code -- una
     señal fuerte (PRB02, EB04, ST37... son códigos casi únicos) que no
     arrastra falsos positivos de otra familia como sí lo haría una
-    búsqueda de texto libre sin categoría."""
+    búsqueda de texto libre sin categoría.
+
+    Devuelve (candidato, es_fallback) -- es_fallback=True cuando el
+    candidato viene de esta segunda búsqueda cross-categoría
+    (implementacion-auto-confirmado-setcode.md 1.1, caso real: una carta
+    promo individual -- categoría promo-card, vacía -- emparejaba contra un
+    Booster Pack completo solo porque el código aparecía de forma decorativa
+    en el nombre de la carta). Es una señal más débil a propósito, pensada
+    para *sugerir* en needs_review, no para confirmar sola -- _evaluate()
+    exige es_fallback=False para el auto-confirmado por set_code exacto."""
     is_box = is_box_variant(raw_name)
     cur.execute(
         """
@@ -113,7 +129,7 @@ def _best_candidate(cur, category_id: int, raw_name: str, set_code: Optional[str
     )
     row = cur.fetchone()
     if row is not None and set_code is not None and row[1] == set_code:
-        return row  # ya hay un candidato con el set_code exacto en la categoría derivada
+        return row, False  # ya hay un candidato con el set_code exacto en la categoría derivada
 
     if set_code is not None:
         cur.execute(
@@ -130,9 +146,9 @@ def _best_candidate(cur, category_id: int, raw_name: str, set_code: Optional[str
         )
         cross_category_row = cur.fetchone()
         if cross_category_row is not None:
-            return cross_category_row
+            return cross_category_row, True
 
-    return row
+    return row, False
 
 
 def _evaluate(
@@ -148,13 +164,12 @@ def _evaluate(
         # respecto a CLASSIFICATION_RULES. No hay nada contra qué comparar.
         return MatchOutcome("unmatched", None, None)
 
-    candidate = _best_candidate(cur, category_id, raw_name, classification.set_code)
+    candidate, es_fallback = _best_candidate(cur, category_id, raw_name, classification.set_code)
     if not candidate:
         return MatchOutcome("unmatched", None, None)
 
     product_id, set_code, language, score = candidate
-    if score < REVIEW_SIMILARITY_THRESHOLD:
-        return MatchOutcome("unmatched", None, None)
+    set_code_matches = classification.set_code is not None and set_code == classification.set_code
 
     if set_code is not None and classification.set_code is not None and set_code != classification.set_code:
         # Mismo tipo de producto pero de un LANZAMIENTO/código distinto --
@@ -183,7 +198,30 @@ def _evaluate(
         # lanzamiento, no ambigüedad por falta de dato.
         return MatchOutcome("unmatched", None, None)
 
+    if not set_code_matches and score < REVIEW_SIMILARITY_THRESHOLD:
+        # El piso de similitud SOLO protege el camino de siempre (candidato
+        # sin set_code exacto) -- cuando set_code_matches es True, el resto
+        # de las cinco condiciones de abajo (categoría real, candidato
+        # primario, idioma, cantidad) ya hacen ese trabajo con una señal más
+        # fuerte que un umbral de texto (implementacion-auto-confirmado-setcode.md
+        # 1.5).
+        return MatchOutcome("unmatched", None, None)
+
     language_matches = classification.language is not None and language == classification.language
+    cantidad_ok = not cantidad_es_ambigua(raw_name, category_slug)
+
+    # Las CINCO condiciones a la vez (1.5): categoría real (ya garantizado
+    # si llegamos aquí), candidato primario (no fallback cross-categoría),
+    # set_code exacto, idioma exacto, cantidad no ambigua. Auto-confirma sin
+    # depender del umbral de similitud de texto -- set_code exacto dentro de
+    # su propia categoría es una señal más fuerte que la similitud pura.
+    if set_code_matches and not es_fallback and language_matches and cantidad_ok:
+        return MatchOutcome("confirmed", product_id, score)
+
+    # Camino de siempre (pre-2026-08-27): sin las cinco condiciones, sigue
+    # pudiendo confirmar por similitud de texto alta + idioma, igual que
+    # antes de este cambio -- cubre los casos sin set_code detectable en
+    # ninguno de los dos lados.
     if language_matches and score > CONFIRMED_SIMILARITY_THRESHOLD:
         return MatchOutcome("confirmed", product_id, score)
 

@@ -29,6 +29,12 @@ CLASSIFICATION_RULES = [
     # combinados esas cartas colarían como PREMIUM_COLLECTION o similar por
     # el texto de acompañamiento, no por ser lo que de verdad son.
     ("LOTE_CARTAS", ["cgc", "psa", "bgs"]),
+    # ANTES que BOOSTER_BOX a propósito (implementacion-auto-confirmado-setcode.md
+    # 1.3): "Case ... Booster Box" contiene ambas keywords -- si BOOSTER_BOX
+    # fuera primero en la lista, un Case nunca llegaría a clasificarse como
+    # tal (el orden de la lista decide qué regla gana, primer match). Antes
+    # de esto un Case se quedaba en OTROS/needs_review sin salida posible.
+    ("BOOSTER_CASE", ["booster case", "case -", "(case)", "booster box case"]),
     # "ultra deck" añadido tras sembrar el catálogo oficial de Bandai (ST-10
     # "Ultra Deck: The Three Captains", ST-13 "...The Three Brothers"):
     # mismo tipo de producto que un Starter Deck (mazo único en caja), solo
@@ -104,6 +110,7 @@ PRODUCT_TYPE_TO_CATEGORY_SLUG = {
     "PROMO_CARD": "promo-card",
     "PLAYMAT": "playmat",
     "DICE_ACCESSORY": "dice-accessory",
+    "BOOSTER_CASE": "booster-case",
 }
 
 NOT_APPLICABLE_PRODUCT_TYPES = {"LOTE_CARTAS", "OTROS"}
@@ -325,6 +332,48 @@ def is_box_variant(text: Optional[str]) -> Optional[bool]:
     if "sobre" in lower:
         return False
     return None
+
+
+# Cantidad estándar de contenido para categorías que SON, por naturaleza, un
+# contenedor de varias unidades (una caja SIEMPRE trae N sobres, eso no es un
+# bundle, es describir el producto). Solo se marca ambiguo cuando el número
+# mencionado DIFIERE del estándar conocido de esa categoría.
+# implementacion-auto-confirmado-setcode.md 1.2, modelo verificado contra 6
+# casos reales del CSV.
+_CANTIDAD_ESTANDAR_POR_CATEGORIA = {
+    "booster-box": 24,
+    "premium-collection": 20,  # verificado contra el catálogo real: "Caja de 20 Sobres PRB02"
+}
+
+# Categorías que son, por naturaleza, UNA sola unidad de venta -- cualquier
+# cantidad >1 mencionada en el nombre es sospechosa de ser un bundle real
+# (Pack 5 Sobres, x6 mazos...), no una descripción de contenido normal.
+_CATEGORIAS_UNIDAD_UNICA = {
+    "booster-pack", "starter-deck", "illustration-box", "playmat",
+    "devil-fruits-collection", "double-pack", "learn-deck",
+    "promo-card", "mystery-pack", "dice-accessory",
+}
+
+_CANTIDAD_SOSPECHOSA_RE = re.compile(r"\bpack\s*(\d+)\b|\b(\d+)\s*sobres\b|\bx\s*(\d+)\b", re.IGNORECASE)
+
+
+def cantidad_es_ambigua(raw_name: str, category_slug: Optional[str]) -> bool:
+    """True si raw_name menciona una cantidad que sugiere una unidad de venta
+    distinta a la del canónico -- ver _CANTIDAD_ESTANDAR_POR_CATEGORIA y
+    _CATEGORIAS_UNIDAD_UNICA arriba. Categoría no reconocida en ninguna de
+    las dos listas -> no se arriesga un falso positivo por exceso de celo,
+    se devuelve False."""
+    if not raw_name:
+        return False
+    match = _CANTIDAD_SOSPECHOSA_RE.search(raw_name)
+    if not match:
+        return False
+    numero = int(next(g for g in match.groups() if g))
+    if category_slug in _CANTIDAD_ESTANDAR_POR_CATEGORIA:
+        return numero != _CANTIDAD_ESTANDAR_POR_CATEGORIA[category_slug]
+    if category_slug in _CATEGORIAS_UNIDAD_UNICA:
+        return numero != 1
+    return False
 
 
 def parse_price_text(text) -> Optional[float]:

@@ -260,7 +260,7 @@ Dos escrituras, cada ejecución de `main()`:
 
 Tras persistir, `main()` ejecuta `matcher.run_matching()` (bloque C de `cambios-necesarios-scraper.md`): vincula cada `store_product.raw_name` a un `product` canónico, o decide que no se puede vincular todavía. **No es aprendizaje automático** — `classify_product()` es determinista (reglas fijas de texto, las mismas del scraper) y la similitud usa `pg_trgm` sobre `name_canonical`. Si un patrón de error se repite, la corrección es editar `CLASSIFICATION_RULES` a mano, no reentrenar nada.
 
-**Requisito previo**: la tabla `category` tiene que estar sembrada con los 13 tipos reales (D.2) antes de poder matchear nada:
+**Requisito previo**: la tabla `category` tiene que estar sembrada con los 14 tipos reales (D.2) antes de poder matchear nada:
 
 ```bash
 docker exec -i cartitas-postgres psql -U cartitas -d cartitas < seed-catalog-app-tcg.sql
@@ -274,7 +274,7 @@ Con `category`/`game` sembrados, `seed_official_catalog.py` puebla `product` con
 python3 seed_official_catalog.py
 ```
 
-Cada lanzamiento tipo booster se siembra dos veces (Booster Box + Booster Pack) porque las tiendas los venden como SKUs distintos con precios muy distintos. Los productos sin categoría en la taxonomía de 13 tipos (fundas, binders, cajas de almacenaje sueltas, sets de aniversario...) se omiten y se listan al final de la ejecución.
+Cada lanzamiento tipo booster se siembra dos veces (Booster Box + Booster Pack) porque las tiendas los venden como SKUs distintos con precios muy distintos. Los productos sin categoría en la taxonomía de 14 tipos (fundas, binders, cajas de almacenaje sueltas, sets de aniversario...) se omiten y se listan al final de la ejecución.
 
 Umbrales (aprobados 2026-08-26 como valores de partida, calibrados con datos reales el 2026-08-27 -- ver detalle completo en `docs/cambios-necesarios-scraper.md` sección C.2):
 
@@ -287,9 +287,11 @@ Umbrales (aprobados 2026-08-26 como valores de partida, calibrados con datos rea
 
 `set_code`, no `main_set` (corregido 2026-08-27): `main_set` solo está poblado para la familia `OP`, así que para el resto (`ST`/`DP`/`EB`/`PRB`/`DF`/Illustration Box/Playmat) el chequeo pasaba en falso y no protegía nada. `set_code` cubre las 6 familias.
 
+**Hecho (2026-08-27, `docs/implementacion-auto-confirmado-setcode.md`):** la tabla de arriba sigue vigente como camino de respaldo (sin `set_code` exacto en algún lado), pero ahora hay un camino RÁPIDO que confirma sin depender de `similarity` en absoluto: candidato PRIMARIO de su propia categoría (no el fallback cross-categoría de más abajo, marcado `es_fallback` por `_best_candidate`) + `set_code` + idioma exactos + cantidad no ambigua (`cantidad_es_ambigua()` en `shared/classify.py` -- detecta bundles reales como "Pack 5 Sobres" o un Case "x10" frente a la cantidad estándar de la categoría). Validado contra 8 casos reales de confirmación y 8 falsos positivos reales de `multi_tienda_one_piece.csv` (carta promo suelta emparejada por casualidad de código, Case confundido con caja suelta, idioma JP sin canónico sembrado, lanzamiento inexistente en el catálogo). Categoría nueva `booster-case` (antes "Case" se quedaba sin salida en `needs_review`); `promo-card` se reestructuró bajo un padre propio `single-card` en vez de `Sellado`.
+
 Idioma no detectado ya no es ambigüedad (corregido 2026-08-27): `classify_product()` asume Inglés cuando ni el nombre ni la variante dicen el idioma -- es la variante que cualquier tienda vende por defecto; cuando venden JP, SIEMPRE lo marcan explícito. Única excepción: el texto "Non-English" se deja en ambiguo, no se asume EN. Antes de este cambio, 190 de 836 `needs_review` reales tenían `set_code` exacto y `similarity > 0.6` pero se quedaban sin confirmar solo por esto.
 
-`run_matching()` reevalúa TODO lo que no esté ya `confirmed` en cada pasada (un `confirmed` es una decisión ya tomada, no se revierte sola). El top-3 de candidatos para el panel de revisión **no se guarda** — se calcula en caliente vía `ORDER BY similarity(...) DESC LIMIT 3`, para no arrastrar una sugerencia obsoleta en cuanto se siembra un producto canónico nuevo más parecido. Si dentro de la categoría derivada del texto ningún candidato trae el `set_code` exacto, se repite la búsqueda en TODO el catálogo por ese `set_code` antes de rendirse (caso real: "PRB02 Booster Box" se clasifica como booster-box por texto, pero el canónico vive en premium-collection) — sigue pasando por el mismo umbral de similitud de texto, solo amplía dónde buscar.
+`run_matching()` reevalúa TODO lo que no esté ya `confirmed` en cada pasada (un `confirmed` es una decisión ya tomada, no se revierte sola). El top-3 de candidatos para el panel de revisión **no se guarda** — se calcula en caliente vía `ORDER BY similarity(...) DESC LIMIT 3`, para no arrastrar una sugerencia obsoleta en cuanto se siembra un producto canónico nuevo más parecido. Si dentro de la categoría derivada del texto ningún candidato trae el `set_code` exacto, se repite la búsqueda en TODO el catálogo por ese `set_code` antes de rendirse (caso real: "PRB02 Booster Box" se clasifica como booster-box por texto, pero el canónico vive en premium-collection) — sigue pasando por el mismo umbral de similitud de texto, solo amplía dónde buscar. **Hecho (2026-08-27):** `_best_candidate()` devuelve `(candidato, es_fallback)` -- un candidato que solo aparece por esta búsqueda cross-categoría nunca auto-confirma por el camino rápido de arriba, aunque el resto de condiciones se cumplan (señal más débil a propósito, pensada para sugerir en `needs_review`, no para confirmar sola).
 
 `matcher.find_missing_canonical_candidates()` agrupa lo no confirmado por `(tipo, set_code, idioma)` y reporta combinaciones que varias tiendas distintas venden pero que no tienen ningún candidato en el catálogo (ni en la categoría derivada ni en ninguna otra con ese `set_code`) — pensado como la señal que alimenta la vista `missing-candidates` del panel de revisión, no crea nada automáticamente.
 

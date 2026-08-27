@@ -15,7 +15,10 @@ YA estaba construido cuando se escribió el plan (bloque C, hecho el
 
 from __future__ import annotations
 
+import pytest
+
 import matcher
+from shared.classify import cantidad_es_ambigua, classify_with_category
 from shared.domain import Classification
 
 
@@ -23,12 +26,13 @@ def make_classification(product_type="BOOSTER_BOX", set_code="OP11", language="E
     return Classification(product_type=product_type, set_code=set_code, language=language, main_set=main_set)
 
 
-def stub_candidate(monkeypatch, product_id=1, set_code="OP11", language="EN", score=0.75):
+def stub_candidate(monkeypatch, product_id=1, set_code="OP11", language="EN", score=0.75, es_fallback=False):
     def _fake_best_candidate(cur, category_id, raw_name, set_code=None):
         # El parámetro `set_code` de aquí es el BUSCADO (lo que _evaluate
         # le pasa) -- se ignora a propósito, el stub siempre devuelve el
         # candidato fijo configurado arriba, sea cual sea la búsqueda.
-        return (product_id, candidate_set_code, language, score) if score is not None else None
+        candidate = (product_id, candidate_set_code, language, score) if score is not None else None
+        return candidate, es_fallback
 
     candidate_set_code = set_code
     monkeypatch.setattr(matcher, "_best_candidate", _fake_best_candidate)
@@ -44,24 +48,81 @@ def seed_category(conn, slug="booster-box", name="Booster Box"):
     return category_id
 
 
+def seed_canonical(conn, category_id, name_canonical, set_code, language="EN"):
+    """Producto canónico real (no stub) -- para tests que necesitan
+    similarity() de pg_trgm de verdad, contra category_id concretos."""
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO game (name, slug) VALUES ('One Piece','one-piece') "
+                    "ON CONFLICT (slug) DO NOTHING")
+        cur.execute("SELECT id FROM game WHERE slug='one-piece'")
+        game_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO product (game_id, category_id, set_code, language, name_canonical) "
+            "VALUES (%s, %s, %s, %s, %s) RETURNING id",
+            (game_id, category_id, set_code, language, name_canonical),
+        )
+        product_id = cur.fetchone()[0]
+    conn.commit()
+    return product_id
+
+
+def seed_store_product(conn, raw_name, store_label="Tienda", raw_variant=None, tags=None):
+    """Inserta un store_product real (vía persistence, como llegaría del
+    scraper) -- usado por los tests end-to-end de run_matching()."""
+    import persistence
+    from shared.domain import Platform, Product, StoreConfig
+    cfg = StoreConfig(store_label, f"https://{store_label.lower()}.example", Platform.SHOPIFY,
+                       shopify_collection="x")
+    store_ids = persistence.sync_stores(conn, [cfg])
+    conn.commit()
+    product = Product(store=store_label, platform="shopify", id_product=None, name=raw_name,
+                       variant=raw_variant, product_type="", main_set=None, set_code=None, language=None,
+                       price=10.0, stock_status="DISPONIBLE",
+                       url=f"https://{store_label.lower()}.example/p1", sku=None, image_url=None, tags=tags)
+    persistence._save_one_store(conn, store_ids[cfg.domain], [product], __import__("datetime").date.today())
+    conn.commit()
+
+
+def evaluar(conn, raw_name, raw_variant=None):
+    """classify_with_category() + _evaluate() contra las categorías/
+    candidatos YA sembrados en `conn` -- el camino real que sigue
+    run_matching() para un raw_name, sin pasar por persistence."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT slug, id FROM category")
+        category_ids = dict(cur.fetchall())
+    classification, category_slug = classify_with_category(raw_name, raw_variant)
+    with conn.cursor() as cur:
+        return matcher._evaluate(cur, category_ids, classification, category_slug, raw_name)
+
+
 # ===========================================================================
 # 6.1 -- Tabla de umbrales de confianza (C.2)
 # ===========================================================================
 
 class TestUmbralesDeConfianza:
+    """Camino DE SIEMPRE (legado, pre-2026-08-27): candidato sin las cinco
+    condiciones del auto-confirmado por set_code (aquí, forzado con
+    classification.set_code=None -- "no se detectó código en el raw_name",
+    el caso real en el que este camino sigue siendo el único disponible).
+    Los umbrales de score (0.6/0.35) solo gobiernan ESTE camino -- ver
+    TestAutoConfirmadoPorSetCode para el camino rápido, que ya no depende
+    del score en absoluto (implementacion-auto-confirmado-setcode.md 1.5)."""
+
     def test_coincide_todo_similarity_075_confirmed(self, db_conn, monkeypatch):
         category_id = seed_category(db_conn)
         stub_candidate(monkeypatch, set_code="OP11", language="EN", score=0.75)
+        classification = make_classification(set_code=None)
         with db_conn.cursor() as cur:
-            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "booster-box", "raw name")
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, classification, "booster-box", "raw name")
         assert outcome.match_status == "confirmed"
         assert outcome.match_confidence == 0.75
 
     def test_coincide_todo_similarity_061_justo_sobre_el_corte_confirmed(self, db_conn, monkeypatch):
         category_id = seed_category(db_conn)
         stub_candidate(monkeypatch, score=0.61)
+        classification = make_classification(set_code=None)
         with db_conn.cursor() as cur:
-            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "booster-box", "raw name")
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, classification, "booster-box", "raw name")
         assert outcome.match_status == "confirmed"
 
     def test_coincide_todo_similarity_060_justo_en_el_corte_NO_confirma(self, db_conn, monkeypatch):
@@ -70,15 +131,17 @@ class TestUmbralesDeConfianza:
         # needs_review. Documentado explícitamente, no dejado implícito.
         category_id = seed_category(db_conn)
         stub_candidate(monkeypatch, score=0.60)
+        classification = make_classification(set_code=None)
         with db_conn.cursor() as cur:
-            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "booster-box", "raw name")
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, classification, "booster-box", "raw name")
         assert outcome.match_status == "needs_review"
 
     def test_coincide_todo_similarity_045_needs_review(self, db_conn, monkeypatch):
         category_id = seed_category(db_conn)
         stub_candidate(monkeypatch, score=0.45)
+        classification = make_classification(set_code=None)
         with db_conn.cursor() as cur:
-            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "booster-box", "raw name")
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, classification, "booster-box", "raw name")
         assert outcome.match_status == "needs_review"
 
     def test_idioma_no_coincide_degrada_a_needs_review_aunque_similarity_sea_alta(self, db_conn, monkeypatch):
@@ -100,8 +163,9 @@ class TestUmbralesDeConfianza:
     def test_similarity_034_unmatched(self, db_conn, monkeypatch):
         category_id = seed_category(db_conn)
         stub_candidate(monkeypatch, score=0.34)
+        classification = make_classification(set_code=None)
         with db_conn.cursor() as cur:
-            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "booster-box", "raw name")
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, classification, "booster-box", "raw name")
         assert outcome.match_status == "unmatched"
 
     def test_similarity_035_justo_en_el_corte_no_es_unmatched_por_ese_motivo(self, db_conn, monkeypatch):
@@ -110,8 +174,9 @@ class TestUmbralesDeConfianza:
         # si el resto de condiciones se cumplen).
         category_id = seed_category(db_conn)
         stub_candidate(monkeypatch, set_code="OP11", language="EN", score=0.35)
+        classification = make_classification(set_code=None)
         with db_conn.cursor() as cur:
-            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "booster-box", "raw name")
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, classification, "booster-box", "raw name")
         assert outcome.match_status == "needs_review"
 
     def test_set_code_no_coincide_es_unmatched_pese_a_similarity_alta(self, db_conn, monkeypatch):
@@ -153,6 +218,50 @@ class TestUmbralesDeConfianza:
 
 
 # ===========================================================================
+# Camino RÁPIDO -- auto-confirmado por set_code exacto, las cinco
+# condiciones de implementacion-auto-confirmado-setcode.md 1.5. No depende
+# del score de similitud: candidato PRIMARIO (no fallback) + set_code +
+# idioma + cantidad no ambigua basta, aunque el texto se parezca poco.
+# ===========================================================================
+
+class TestAutoConfirmadoPorSetCode:
+    def test_cinco_condiciones_confirman_aunque_la_similitud_sea_bajisima(self, db_conn, monkeypatch):
+        # El punto central de 1.5: a diferencia del camino de siempre
+        # (TestUmbralesDeConfianza), aquí NO hay umbral de score -- un
+        # score de 0.05 confirma igual si las otras cuatro condiciones
+        # se cumplen.
+        category_id = seed_category(db_conn)
+        stub_candidate(monkeypatch, set_code="OP11", language="EN", score=0.05, es_fallback=False)
+        with db_conn.cursor() as cur:
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "booster-box", "raw name")
+        assert outcome.match_status == "confirmed"
+        assert outcome.match_confidence == 0.05
+
+    def test_candidato_por_fallback_no_confirma_aunque_todo_lo_demas_coincida(self, db_conn, monkeypatch):
+        # es_fallback=True (candidato de la búsqueda cross-categoría, ver
+        # _best_candidate) bloquea el camino rápido -- score bajo a
+        # propósito para no colar por el camino de siempre tampoco (ver
+        # comentario de _evaluate sobre ese "hueco" del score alto).
+        category_id = seed_category(db_conn)
+        stub_candidate(monkeypatch, set_code="OP11", language="EN", score=0.20, es_fallback=True)
+        with db_conn.cursor() as cur:
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "booster-box", "raw name")
+        assert outcome.match_status == "needs_review"
+
+    def test_cantidad_ambigua_bloquea_el_camino_rapido(self, db_conn, monkeypatch):
+        category_id = seed_category(db_conn, slug="booster-box")
+        stub_candidate(monkeypatch, set_code="OP11", language="EN", score=0.20, es_fallback=False)
+        classification = make_classification(set_code="OP11")
+        with db_conn.cursor() as cur:
+            # "x12" en un booster-box (estándar 24) -- cantidad_es_ambigua()
+            # devuelve True, bloquea las cinco condiciones.
+            outcome = matcher._evaluate(
+                cur, {"booster-box": category_id}, classification, "booster-box", "OP11 Caja de sobres x12",
+            )
+        assert outcome.match_status == "needs_review"
+
+
+# ===========================================================================
 # _best_candidate -- set_code exacto gana a similitud pura (contra Postgres
 # real: hace falta similarity() de pg_trgm de verdad, no un stub)
 # ===========================================================================
@@ -186,12 +295,13 @@ class TestBestCandidatePrioridadDeSetCode:
         )
 
         with db_conn.cursor() as cur:
-            candidate = matcher._best_candidate(
+            candidate, es_fallback = matcher._best_candidate(
                 cur, category_id, "LUFFY – STARTER DECK ONE PIECE – ST 31", set_code="ST31",
             )
 
         assert candidate[0] == correcto_id
         assert candidate[0] != generico_id
+        assert es_fallback is False  # dentro de su propia categoría, no es un candidato de fallback
 
     def test_sin_set_code_en_el_raw_name_se_queda_con_similitud_pura(self, db_conn):
         # Degradación segura: si el raw_name no trae código reconocible
@@ -204,11 +314,12 @@ class TestBestCandidatePrioridadDeSetCode:
         )
 
         with db_conn.cursor() as cur:
-            candidate = matcher._best_candidate(
+            candidate, es_fallback = matcher._best_candidate(
                 cur, category_id, "Starter Deck ONE PIECE FILM edition ST-06 EN", set_code=None,
             )
 
         assert candidate[0] == mas_parecido_id
+        assert es_fallback is False
 
     def test_caja_vs_sobre_con_mismo_set_code_desempata_por_variante(self, db_conn):
         # Caso real encontrado revisando la cola (2026-08-27): "Premium
@@ -224,15 +335,16 @@ class TestBestCandidatePrioridadDeSetCode:
         )
 
         with db_conn.cursor() as cur:
-            candidato_para_caja = matcher._best_candidate(
+            candidato_para_caja, fallback_caja = matcher._best_candidate(
                 cur, category_id, "CAJA THE BEST VOL.2 – PRB-02 – ONE PIECE", set_code="PRB02",
             )
-            candidato_para_sobre = matcher._best_candidate(
+            candidato_para_sobre, fallback_sobre = matcher._best_candidate(
                 cur, category_id, "SOBRE THE BEST VOL.2 – PRB-02 – ONE PIECE", set_code="PRB02",
             )
 
         assert candidato_para_caja[0] == caja_id
         assert candidato_para_sobre[0] == sobre_id
+        assert fallback_caja is False and fallback_sobre is False
 
     def test_fallback_cross_categoria_por_set_code_exacto(self, db_conn):
         # Caso real (2026-08-27): el canónico PRB02 "The Best vol.2" se
@@ -248,12 +360,13 @@ class TestBestCandidatePrioridadDeSetCode:
         )
 
         with db_conn.cursor() as cur:
-            candidate = matcher._best_candidate(
+            candidate, es_fallback = matcher._best_candidate(
                 cur, booster_box_category_id, "One Piece Card Game Premium Booster PRB-02 Caja", set_code="PRB02",
             )
 
         assert candidate is not None
         assert candidate[0] == prb_id
+        assert es_fallback is True  # vino de la búsqueda cross-categoría, no de booster-box
 
     def test_sin_fallback_si_la_categoria_derivada_ya_trae_el_set_code_exacto(self, db_conn):
         # El fallback NO debe dispararse si ya hay un candidato correcto en
@@ -262,9 +375,10 @@ class TestBestCandidatePrioridadDeSetCode:
         correcto_id = self._seed_product(db_conn, category_id, "Booster Box OP17 EN", "OP17")
 
         with db_conn.cursor() as cur:
-            candidate = matcher._best_candidate(cur, category_id, "Booster Box OP17 EN", set_code="OP17")
+            candidate, es_fallback = matcher._best_candidate(cur, category_id, "Booster Box OP17 EN", set_code="OP17")
 
         assert candidate[0] == correcto_id
+        assert es_fallback is False
 
     def test_fallback_no_dispara_sin_set_code(self, db_conn):
         # Sin set_code detectado no hay señal fuerte con la que buscar
@@ -273,9 +387,39 @@ class TestBestCandidatePrioridadDeSetCode:
         category_id = seed_category(db_conn, slug="booster-box")
 
         with db_conn.cursor() as cur:
-            candidate = matcher._best_candidate(cur, category_id, "Producto sin código reconocible", set_code=None)
+            candidate, es_fallback = matcher._best_candidate(
+                cur, category_id, "Producto sin código reconocible", set_code=None,
+            )
 
         assert candidate is None
+        assert es_fallback is False
+
+    def test_candidato_por_fallback_cross_categoria_se_marca_como_tal(self, db_conn):
+        # implementacion-auto-confirmado-setcode.md 2.4 -- caso real: la
+        # categoría promo-card se queda vacía a propósito (nadie ha sembrado
+        # cartas promo todavía), el único candidato posible con set_code
+        # OP13 vive en booster-pack. Debe marcarse como fallback.
+        promo_card_category_id = seed_category(db_conn, slug="promo-card")
+        booster_pack_category_id = seed_category(db_conn, slug="booster-pack")
+        self._seed_product(db_conn, booster_pack_category_id, "Booster Pack OP-13 Carrying On His Will EN", "OP13")
+
+        with db_conn.cursor() as cur:
+            candidate, es_fallback = matcher._best_candidate(
+                cur, promo_card_category_id, "Carta Promo Sellada Ichiban Kuji Monkey D. Luffy OP13", set_code="OP13",
+            )
+
+        assert candidate is not None
+        assert es_fallback is True
+
+    def test_candidato_dentro_de_su_categoria_no_se_marca_como_fallback(self, db_conn):
+        category_id = seed_category(db_conn, slug="booster-box")
+        correcto_id = self._seed_product(db_conn, category_id, "Caja OP16 The Time of Battle EN", "OP16")
+
+        with db_conn.cursor() as cur:
+            candidate, es_fallback = matcher._best_candidate(cur, category_id, "Caja OP16 ...", set_code="OP16")
+
+        assert candidate[0] == correcto_id
+        assert es_fallback is False
 
 
 # ===========================================================================
@@ -535,3 +679,178 @@ class TestFindMissingCanonicalCandidates:
         suggestions = matcher.find_missing_canonical_candidates(db_conn, min_stores=2)
 
         assert suggestions == []
+
+
+# ===========================================================================
+# implementacion-auto-confirmado-setcode.md 2.3 -- cantidad_es_ambigua(),
+# unitarios directos, sin necesitar BBDD.
+# ===========================================================================
+
+class TestCantidadEsAmbigua:
+    @pytest.mark.parametrize("raw_name,category_slug,esperado", [
+        ("Caja de 24 Sobres Royal Blood OP10 - Inglés", "booster-box", False),
+        ("Caja de 20 Sobres The Best 2 PRB02 - Inglés", "premium-collection", False),
+        ("[INGLÉS] One Piece Card Game OP-16 Caja de sobres x12", "booster-box", True),
+        ("Pack 5 Sobres One Piece Adventure on KAMI's Island OP15 - Japones", "booster-pack", True),
+        ("[INGLÉS] One Piece Card Game Starter Deck EX Gear5 [ST21] x6", "starter-deck", True),
+        (
+            "One Piece Card Game Double Pack Set Vol.10 [DP-10] – 2 Booster Packs + Exclusive DON!! Card",
+            "double-pack", False,
+        ),  # "2 Booster Packs" describe el contenido normal de un Double Pack, no un bundle de 2 sets
+    ])
+    def test_cantidad_es_ambigua_casos_reales(self, raw_name, category_slug, esperado):
+        assert cantidad_es_ambigua(raw_name, category_slug) == esperado
+
+    def test_categoria_no_reconocida_nunca_es_ambigua(self):
+        # Ni en _CANTIDAD_ESTANDAR_POR_CATEGORIA ni en _CATEGORIAS_UNIDAD_UNICA
+        # -- no se arriesga un falso positivo por exceso de celo.
+        assert cantidad_es_ambigua("Pack 5 Sobres de algo", "booster-case") is False
+
+
+# ===========================================================================
+# implementacion-auto-confirmado-setcode.md 2.1 -- control positivo: 8 casos
+# reales de multi_tienda_one_piece.csv revisados a mano (2026-08-27), todos
+# confirmados como el producto correcto. Regresión: si alguno deja de
+# confirmar, algo del cambio rompió el camino feliz.
+# ===========================================================================
+
+class TestControlPositivoCasosReales:
+    @pytest.mark.parametrize("raw_name,raw_variant,category_slug,set_code,canonical_name", [
+        (
+            "One Piece: Double Pack Set Display DP-11", None, "double-pack", "DP11",
+            "One Piece Double Pack Set Vol.11 DP-11 EN",
+        ),
+        (
+            "One Piece Card Game Playmat Limited Edition Vol 2", None, "playmat", "VOL02",
+            "Playmat Vol.2 EN",
+        ),
+        (
+            "One Piece | Illustration Box Vol.4 Perona & Mihawk", "Inglés", "illustration-box", "VOL04",
+            "Illustration Box Vol.4 Perona & Mihawk EN",
+        ),
+        (
+            "One Piece Card Game - Devil Fruits Collection Vol.3 Op-Op Fruit (DF03)", None,
+            "devil-fruits-collection", "DF03", "Devil Fruits Collection Vol.3 Op-Op Fruit DF03 EN",
+        ),
+        (
+            "Caja de 20 Sobres The Best 2 PRB02 - Inglés", None, "premium-collection", "PRB02",
+            "Caja de 20 Sobres The Best Vol.2 PRB-02 EN",
+        ),
+        (
+            "One Piece Card Game - Gear 5 Starter Deck EX ST21", None, "starter-deck", "ST21",
+            "Starter Deck EX Gear 5 ST-21 EN",
+        ),
+        (
+            "Caja sobres One Piece OP-16 The Time of Battle (inglés)", None, "booster-box", "OP16",
+            "Caja de Sobres One Piece OP-16 The Time of Battle EN",
+        ),
+        (
+            "ONE PIECE TCG - EB-05", None, "booster-pack", "EB05",
+            "Booster Pack EB-05 One Piece TCG EN",
+        ),
+    ])
+    def test_setcode_exacto_confirma_casos_reales_verificados_a_mano(
+        self, db_conn, raw_name, raw_variant, category_slug, set_code, canonical_name,
+    ):
+        category_id = seed_category(db_conn, slug=category_slug, name=category_slug)
+        seed_canonical(db_conn, category_id, canonical_name, set_code, language="EN")
+
+        outcome = evaluar(db_conn, raw_name, raw_variant)
+
+        assert outcome.match_status == "confirmed", (raw_name, outcome)
+
+
+# ===========================================================================
+# implementacion-auto-confirmado-setcode.md 2.2 -- falsos positivos a
+# evitar: casos reales de multi_tienda_one_piece.csv que comparten set_code
+# (o casi) con un candidato real y que, sin las guardas de este cambio,
+# confirmarían incorrectamente.
+# ===========================================================================
+
+class TestFalsosPositivosCasosReales:
+    def test_promo_card_no_confirma_por_fallback_cross_categoria(self, db_conn):
+        # cross_categoria: promo-card está vacía, el candidato solo aparece
+        # por el fallback de set_code en todo el catálogo (Booster Pack
+        # OP-13) -- NO es el mismo producto.
+        seed_category(db_conn, slug="promo-card")
+        booster_pack_id = seed_category(db_conn, slug="booster-pack")
+        seed_canonical(db_conn, booster_pack_id, "Booster Pack OP-13 Carrying On His Will EN", "OP13", "EN")
+
+        outcome = evaluar(db_conn, "Carta Promo Sellada Ichiban Kuji Monkey D. Luffy OP13 - Japones")
+
+        assert outcome.match_status != "confirmed"
+
+    def test_case_no_confirma_contra_premium_booster_box(self, db_conn):
+        # cantidad_ambigua: es un Case (10 cajas), no una caja suelta --
+        # se clasifica BOOSTER_CASE, no debe confirmar contra Premium
+        # Booster Box (llega solo por el fallback cross-categoría).
+        seed_category(db_conn, slug="booster-case")
+        premium_id = seed_category(db_conn, slug="premium-collection")
+        seed_canonical(db_conn, premium_id, "Caja de 20 Sobres The Best Vol.2 PRB-02 EN", "PRB02", "EN")
+
+        outcome = evaluar(db_conn, "(CASE) THE BEST 2 – PRB-02 – x10 Booster Box- One Piece Card Game")
+
+        assert outcome.match_status != "confirmed"
+
+    def test_pack_5_sobres_no_confirma_contra_booster_pack_suelto(self, db_conn):
+        # cantidad_ambigua: bundle real de 5 sobres, booster-pack es
+        # categoría de unidad única -- 5 != 1.
+        booster_pack_id = seed_category(db_conn, slug="booster-pack")
+        seed_canonical(db_conn, booster_pack_id, "Booster Pack OP-15 Adventure on KAMI's Island EN", "OP15", "EN")
+
+        outcome = evaluar(db_conn, "Pack 5 Sobres One Piece Adventure on KAMI’s Island OP15 - Japones")
+
+        assert outcome.match_status != "confirmed"
+
+    def test_caja_x12_no_confirma_contra_booster_box_de_24(self, db_conn):
+        # cantidad_ambigua: booster-box espera 24, x12 no coincide --
+        # podría ser una caja distinta, no confiar solo en el set_code.
+        booster_box_id = seed_category(db_conn, slug="booster-box")
+        seed_canonical(db_conn, booster_box_id, "Caja de Sobres One Piece OP-16 The Time of Battle EN", "OP16", "EN")
+
+        outcome = evaluar(db_conn, "[INGLÉS] One Piece Card Game OP-16 Caja de sobres x12")
+
+        assert outcome.match_status != "confirmed"
+
+    def test_starter_deck_x6_no_confirma_contra_mazo_suelto(self, db_conn):
+        # cantidad_ambigua: starter-deck es categoría de unidad única --
+        # 6 != 1.
+        starter_deck_id = seed_category(db_conn, slug="starter-deck")
+        seed_canonical(db_conn, starter_deck_id, "Starter Deck EX Gear 5 ST-21 EN", "ST21", "EN")
+
+        outcome = evaluar(db_conn, "[INGLÉS] One Piece Card Game Starter Deck EX Gear5 [ST21] x6")
+
+        assert outcome.match_status != "confirmed"
+
+    def test_idioma_jp_no_confirma_contra_booster_pack_en(self, db_conn):
+        # idioma_no_coincide: raw es JP, el único candidato con ese set_code
+        # en booster-pack es EN -- no existe canónico JP para este caso
+        # concreto todavía.
+        booster_pack_id = seed_category(db_conn, slug="booster-pack")
+        seed_canonical(db_conn, booster_pack_id, "Booster Pack OP-03 Pillars of Strength EN", "OP03", "EN")
+
+        outcome = evaluar(db_conn, "One Piece | Sobres OP-03 Pillars of Strength", "Japonés")
+
+        assert outcome.match_status != "confirmed"
+
+    def test_idioma_jp_no_confirma_contra_premium_collection_en(self, db_conn):
+        # idioma_no_coincide: mismo caso, premium-collection no tiene
+        # variante JP sembrada (a diferencia de booster-box/pack).
+        premium_id = seed_category(db_conn, slug="premium-collection")
+        seed_canonical(db_conn, premium_id, "Caja de 20 Sobres The Best Vol.2 PRB-02 EN", "PRB02", "EN")
+
+        outcome = evaluar(db_conn, "Caja One Piece The Best 2 PRB02 - Japones")
+
+        assert outcome.match_status != "confirmed"
+
+    def test_setcode_inexistente_no_confirma_contra_otro_lanzamiento(self, db_conn):
+        # setcode_distinto: OP-18 no existe en el catálogo sembrado
+        # (lanzamiento posterior) -- NUNCA debe confirmar contra OP-13 u
+        # otro set solo porque el texto se parezca.
+        booster_pack_id = seed_category(db_conn, slug="booster-pack")
+        seed_canonical(db_conn, booster_pack_id, "Booster Pack OP-13 Carrying On His Will EN", "OP13", "EN")
+
+        outcome = evaluar(db_conn, "One Piece Card Game OP-18 Booster Pack - English")
+
+        assert outcome.match_status != "confirmed"
+        assert outcome.product_id is None
