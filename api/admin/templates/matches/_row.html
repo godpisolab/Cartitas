@@ -1,0 +1,45 @@
+<tr id="match-{{ item.store_product_id }}">
+  <td>{{ item.store.name }}</td>
+  <td>
+    {{ item.raw_name }}
+    {% if item.raw_variant %}<br><small>{{ item.raw_variant }}</small>{% endif %}
+  </td>
+  <td>{{ "%.2f"|format(item.current_price) if item.current_price is not none else "—" }}</td>
+  <td>{{ item.match_status.value }}</td>
+  <td>
+    {% if item.match_status.value == "confirmed" %}
+      Producto #{{ item.product_id }}
+      {% if item.match_confidence is not none %}<br><small>confianza {{ "%.2f"|format(item.match_confidence) }}</small>{% endif %}
+    {% elif item.candidates %}
+      <ul class="candidates">
+        {% for c in item.candidates %}
+          <li>
+            {{ c.name_canonical }} <small>({{ "%.2f"|format(c.similarity) }})</small>
+            <button
+              hx-post="/admin/matches/{{ item.store_product_id }}/confirm"
+              hx-target="closest tr" hx-swap="outerHTML"
+              hx-vals='{"product_id": {{ c.product_id }}}'>
+              Confirmar
+            </button>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <small>sin candidatos</small>
+    {% endif %}
+  </td>
+  <td>
+    {% if item.match_status.value == "confirmed" %}
+      <button hx-post="/admin/matches/{{ item.store_product_id }}/reopen"
+              hx-target="closest tr" hx-swap="outerHTML">
+        Reabrir
+      </button>
+    {% else %}
+      <button hx-post="/admin/matches/{{ item.store_product_id }}/reject"
+              hx-target="closest tr" hx-swap="outerHTML"
+              hx-vals='{"mark_as": "unmatched"}'>
+        Descartar
+      </button>
+    {% endif %}
+  </td>
+</tr>

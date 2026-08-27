@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Cola de matching — Panel Cartitas{% endblock %}
+{% block content %}
+  <h2>Cola de matching</h2>
+  <table class="matches-table">
+    <thead>
+      <tr>
+        <th>Tienda</th>
+        <th>Nombre en tienda</th>
+        <th>Precio</th>
+        <th>Estado</th>
+        <th>Candidatos / producto</th>
+        <th>Acción</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+        {% include "matches/_row.html" %}
+      {% else %}
+        <tr><td colspan="6">No hay elementos pendientes de revisión.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

@@ -3,3 +3,5 @@ fastapi
 uvicorn[standard]
 sqlmodel
 psycopg2-binary
+jinja2
+python-multipart

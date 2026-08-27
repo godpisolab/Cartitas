@@ -30,3 +30,11 @@ def _load_api_keys() -> dict[str, frozenset[str]]:
 
 
 API_KEYS: dict[str, frozenset[str]] = _load_api_keys()
+
+# Credencial de PERSONA para el panel de gestor (admin/auth.py) -- HTTP
+# Basic, deliberadamente distinta de API_KEYS (docs/
+# frontend-arquitectura-decidida.md sección 3: keys de aplicación vs. login
+# de persona son dos mecanismos separados a propósito). Sin valor por
+# defecto real: falla cerrado si no se configura en despliegue.
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")

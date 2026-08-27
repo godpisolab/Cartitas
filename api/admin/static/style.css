@@ -1,0 +1,61 @@
+/* CSS mínimo, sin build step ni bundler (docs/estandares-implementacion-frontend.md
+   sección 2.1) -- estética real deliberadamente diferida. */
+
+body {
+  font-family: system-ui, sans-serif;
+  margin: 0;
+  color: #1a1a1a;
+}
+
+.admin-header {
+  padding: 0.75rem 1.5rem;
+  background: #1a1a1a;
+  color: #fff;
+  display: flex;
+  align-items: baseline;
+  gap: 1.5rem;
+}
+
+.admin-header h1 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.admin-header nav a {
+  color: #fff;
+}
+
+main {
+  padding: 1.5rem;
+}
+
+table.matches-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+table.matches-table th,
+table.matches-table td {
+  border: 1px solid #ddd;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+table.matches-table th {
+  background: #f4f4f4;
+}
+
+ul.candidates {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+ul.candidates li {
+  margin-bottom: 0.35rem;
+}
+
+button {
+  cursor: pointer;
+}

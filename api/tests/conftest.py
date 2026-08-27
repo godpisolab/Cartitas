@@ -103,6 +103,17 @@ def auth_headers(api_key):
 
 
 @pytest.fixture
+def admin_credentials(monkeypatch):
+    """Credencial de persona para el panel (admin/auth.py) -- mismo patrón
+    que `api_key`, pero monkeypatcheando config.ADMIN_USERNAME/PASSWORD en
+    vez de API_KEYS. Devuelve la tupla lista para `client.get(..., auth=)`."""
+    import config
+    monkeypatch.setattr(config, "ADMIN_USERNAME", "admin")
+    monkeypatch.setattr(config, "ADMIN_PASSWORD", "test-password")
+    return ("admin", "test-password")
+
+
+@pytest.fixture
 def seed_listing(session):
     """Factory fixture: crea game/category/store bajo demanda (idempotente
     por slug/website_url dentro del mismo test) + un product con UN

@@ -4,9 +4,14 @@ docs/estandares-implementacion-api.md, sección 2."""
 
 from __future__ import annotations
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from pathlib import Path
 
+from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
+from admin.auth import verify_admin
+from admin.routes import matches as admin_matches
 from errors import install_exception_handlers
 from routers import catalog, deals, matches, products, restock_events, stores, subscriptions
 
@@ -31,3 +36,15 @@ app.include_router(stores.router)
 app.include_router(catalog.router)
 app.include_router(subscriptions.router)
 app.include_router(matches.router)
+
+# Panel de gestor -- HTML server-rendered en el mismo proceso que la API
+# JSON, HTTP Basic propio en vez de Bearer+scope (docs/
+# frontend-arquitectura-decidida.md sección 3). `verify_admin` se aplica
+# una única vez aquí, a nivel de router -- las rutas de admin/routes/ no lo
+# comprueban a mano.
+app.include_router(
+    admin_matches.router, prefix="/admin", tags=["admin"], dependencies=[Depends(verify_admin)],
+)
+app.mount(
+    "/admin/static", StaticFiles(directory=Path(__file__).parent / "admin" / "static"), name="admin-static",
+)
