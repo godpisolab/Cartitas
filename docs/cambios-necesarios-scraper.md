@@ -91,6 +91,8 @@ Para que quede algo implementable, no solo "alto/medio/bajo":
 
 Aprobados como valores de partida (2026-08-26). Se calibrarán con datos reales una vez migrado — no hay forma de acertarlos a priori sin ver la distribución real de similitudes, pero arrancan como la política vigente del matcher, no como una propuesta abierta.
 
+**Corregido (2026-08-27, revisión de la cola de matching con datos reales):** el campo de comparación pasó de `main_set` a `set_code` -- `main_set` solo está poblado para la familia `OP` por diseño (ver D.1 más abajo, "distinto de `set_code` para Starter Deck/Illustration Box con código propio"), así que para el resto de familias (`ST`/`DP`/`EB`/`PRB`/`DF`/Illustration Box/Playmat) el chequeo pasaba en falso (`None == None`) y no protegía nada de verdad. `set_code` sí cubre las 6 familias con el MISMO valor que `main_set` tenía para `OP`, así que no cambia ese caso y cierra el hueco para el resto. Detalle completo en el docstring de `matcher._evaluate()`.
+
 ### C.3. Candidatos múltiples y empatados — decidido: top-3
 
 Cuando dos productos canónicos tienen `similarity` parecida (ej. edición normal vs. edición especial del mismo set, con nombres casi idénticos), el matcher no fuerza una única sugerencia — se calcula el **top-3** candidatos por similitud y el panel de revisión los muestra todos, para que la persona elija en vez de solo confirmar/rechazar una opción.

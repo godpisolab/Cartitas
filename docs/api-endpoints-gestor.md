@@ -46,7 +46,7 @@ Deshace una confirmación equivocada. Parte de un `storeProduct` con `matchStatu
 
 **Sin body.**
 
-**Efecto:** `matchStatus = needsReview`, `productId = null`, `matchConfidence = null`, **`reviewedAt = null`** — se limpia también el rechazo si lo hubiera habido antes (reabrir es "vuelve a estar activamente en revisión", el estado contrario a "ya se miró y no había nada").
+**Efecto:** `matchStatus = needsReview`, `productId = null`, `matchConfidence = null`, **`reviewedAt = null`, `reviewedReason = null`** — se limpia también el rechazo (y su motivo, si lo hubiera) si lo hubiera habido antes (reabrir es "vuelve a estar activamente en revisión", el estado contrario a "ya se miró y no había nada").
 
 **Respuesta:** `200` con el `storeProduct` actualizado. `404` si no existe. `409` si `matchStatus` no era `confirmed` (no tiene sentido "reabrir" algo que no estaba cerrado — para eso ya está `reject`).
 

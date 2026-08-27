@@ -155,8 +155,10 @@ Ya verificado que `Jinja2Templates` de FastAPI lo activa por defecto para `.html
 
 ## 3. Checklist de cierre final
 
-- [ ] 1.1 a 1.5 implementados, cada uno con sus tests de la sección correspondiente.
-- [ ] Cada acción de escritura nueva tiene su test de "admin sin configurar → 401" (2.3).
-- [ ] `docs/frontend-arquitectura-decidida.md` actualizado con una entrada final de cierre de fase, listando explícitamente que `POST /stores/{id}/scrape` queda fuera y por qué (1.6) — para que no se lea como un olvido dentro de unos meses.
-- [ ] `api/README.md` actualizado con el recuento final de rutas de `admin/` y el número de tests, mismo formato que ya se usa ahí.
-- [ ] Suite completa de `api/` corrida contra Postgres real antes de dar la fase por cerrada — no basta con que cada test pase aislado.
+- [x] 1.1 a 1.5 implementados, cada uno con sus tests de la sección correspondiente.
+- [x] Cada acción de escritura nueva tiene su test de "admin sin configurar → 401" (2.3).
+- [x] `docs/frontend-arquitectura-decidida.md` actualizado con una entrada final de cierre de fase, listando explícitamente que `POST /stores/{id}/scrape` queda fuera y por qué (1.6) — para que no se lea como un olvido dentro de unos meses.
+- [x] `api/README.md` actualizado con el recuento final de rutas de `admin/` y el número de tests, mismo formato que ya se usa ahí.
+- [x] Suite completa de `api/` corrida contra Postgres real antes de dar la fase por cerrada — no basta con que cada test pase aislado.
+
+**Hecho (2026-08-27):** fase cerrada. Commit `6b34608` ("Completar el panel de gestor -- productos, tiendas y cola de matching"). 189 tests en `api/`, 99% cobertura. De paso, revisando la cola de matching real con datos de producción, se encontraron y corrigieron varias mejoras al propio motor de matching (`shared/classify.py`, `store_monitor/matcher.py`) que no formaban parte de este plan pero surgieron directamente de usar el panel recién construido -- documentadas por separado en el commit `84cd703`, no en este plan.

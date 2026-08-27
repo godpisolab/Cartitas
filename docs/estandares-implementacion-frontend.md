@@ -249,3 +249,5 @@ def test_confirm_match_actualiza_la_fila(client, db_conn):
 ## Siguiente paso natural
 
 Con esta guía, el primer trabajo concreto es el esqueleto del panel (sección 2: `admin/auth.py` + una única ruta end-to-end, `GET /admin/matches` con su `list.html`) antes de replicar el patrón a `products`/`stores` — mismo criterio de "un caso completo antes de generalizar" ya usado al construir la API pública.
+
+**Hecho (2026-08-27):** el patrón se replicó completo a `admin/routes/products.py` y `admin/routes/stores.py`, siguiendo exactamente esta guía (formularios de página completa en vez de htmx para alta/edición, más apropiado para un formulario largo que un intercambio de fila). Cierre de fase completo en `docs/plan-cierre-panel-gestor.md`. El sitio público (Astro) sigue sin empezar -- fuera de esta ronda.

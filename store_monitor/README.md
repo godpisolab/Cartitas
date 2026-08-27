@@ -334,12 +334,12 @@ Tres jobs: `barrido_diario` (cron, 1x/día, reutiliza `main()` tal cual), `refre
 
 ## Tests
 
-201 tests (`pytest`), pirámide invertida a propósito respecto a un proyecto típico: el riesgo real aquí no es "se rompió la lógica de negocio pura" (barata de cubrir con unitarios), sino "una tienda cambió su HTML" o "el SQL no hace lo que creo" -- de ahí el peso en integración con HTTP mockeado y Postgres real, no solo mocks de todo.
+294 tests (`pytest`), pirámide invertida a propósito respecto a un proyecto típico: el riesgo real aquí no es "se rompió la lógica de negocio pura" (barata de cubrir con unitarios), sino "una tienda cambió su HTML" o "el SQL no hace lo que creo" -- de ahí el peso en integración con HTTP mockeado y Postgres real, no solo mocks de todo.
 
 ```bash
 pip install -r requirements-dev.txt
 
-# Los tests de persistencia/matching/store_state necesitan una BBDD de test
+# Los tests de persistencia/matching/store_state/E necesitan una BBDD de test
 # SEPARADA de la de desarrollo (mismo contenedor, otra base):
 docker exec cartitas-postgres psql -U cartitas -d cartitas -c "CREATE DATABASE cartitas_test;"
 docker exec -i cartitas-postgres psql -U cartitas -d cartitas_test < ../schema-postgresql-app-tcg.sql
@@ -348,21 +348,11 @@ pytest                          # todo
 pytest --cov=. --cov-report=term-missing   # con cobertura
 ```
 
-Los tests que no piden la fixture `db_conn` no tocan Postgres en absoluto (se saltan solos si `cartitas_test` no está levantada -- no hace falta Docker para los ~180 tests unitarios/de scraper).
-
-| Fichero | Qué cubre |
-|---|---|
-| `test_classify_product.py`, `test_parse_price.py` | Reglas de clasificación/parseo de precio -- incluye la regresión de `" en "` como preposición y el límite real de la regex de `main_set` (`OP-99` vs `OP-100`) |
-| `test_store_config.py` | Validación de `StoreConfig` -- la corrección estructural del bug Arte9/ZIAL |
-| `test_request_with_retries.py` | Reintentos, `Retry-After`, reto anti-bot, fallback SSL -- HTTP mockeado, `time.sleep` espiado, cero esperas reales |
-| `test_dispatcher.py` | Caché de robots.txt, circuit breaker, backoff persistido -- `store_state` sustituida por un dict en memoria (se prueba la lógica del dispatcher, no store_state.py en sí) |
-| `test_scraper_*.py` (6 ficheros) | Un fichero por plataforma, HTTP mockeado con fixtures inline -- incluye los casos ya documentados como bugs reales (Arte9, Pokemillon, ISEKAI...) |
-| `test_persistence.py`, `test_store_state.py`, `test_matcher.py` | Integración contra Postgres real (`cartitas_test`) |
-| `test_main_e2e.py` | Único E2E: `main()` completo con 2 tiendas mockeadas + Postgres real |
+Los tests que no piden la fixture `db_conn` no tocan Postgres en absoluto (se saltan solos si `cartitas_test` no está levantada -- no hace falta Docker para la mayoría, los unitarios y de scraper).
 
 **Bug real encontrado escribiendo estos tests** (no un caso feliz más): el `UNIQUE(store_id, store_url, raw_variant)` de `store_product` (añadido en el bloque E para el caso Pokemillon) nunca detectaba conflicto cuando `raw_variant` era `NULL` -- que es el caso de TODAS las plataformas salvo Shopify. Cada re-scrape de una tienda WooCommerde/PrestaShop/OpenCart/Odoo/JSON-LD habría creado una fila duplicada nueva en vez de actualizar la existente, sin límite, cada día. Corregido con `UNIQUE NULLS NOT DISTINCT` (Postgres 15+) -- ver el comentario en `schema-postgresql-app-tcg.sql`.
 
-**Sin cobertura de tests todavía** (construidos después de que se redactara el plan de pruebas): `scheduler.py`, `sitemap_poller.py`, `restock_notifier.py` (parcial), `seed_official_catalog.py`, y el refresco de calientes (`persistence.refresh_hot_products`) -- todos del bloque E, probados manualmente contra tiendas reales durante su desarrollo (ver commits), pero pendientes de tests automatizados.
+Desglose fichero por fichero, bugs reales encontrados y qué queda deliberadamente sin cubrir: ver [`tests/README.md`](tests/README.md) -- mantenida como la fuente de verdad detallada, no duplicada aquí para que no se desincronicen las dos.
 
 ## Limitaciones conocidas
 

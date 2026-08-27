@@ -1,11 +1,11 @@
 # Tests — Store Monitor
 
-269 tests (`pytest`), pirámide invertida a propósito respecto a un proyecto típico: el riesgo real de este proyecto no es "se rompió la lógica de negocio pura" (barata de cubrir con unitarios), sino "una tienda cambió su HTML" o "el SQL no hace lo que creo" — de ahí el peso en integración con HTTP mockeado y Postgres real, no solo mocks de todo.
+294 tests (`pytest`), pirámide invertida a propósito respecto a un proyecto típico: el riesgo real de este proyecto no es "se rompió la lógica de negocio pura" (barata de cubrir con unitarios), sino "una tienda cambió su HTML" o "el SQL no hace lo que creo" — de ahí el peso en integración con HTTP mockeado y Postgres real, no solo mocks de todo.
 
 ```
         /  E2E (2)  \           main() completo, con y sin Postgres disponible
-       / Integración (~65) \    scrapers contra HTTP mockeado + Postgres real
-      /  Unitarios (~200)    \  clasificación, parseo, validación, dispatcher
+       / Integración (~70) \    scrapers contra HTTP mockeado + Postgres real
+      /  Unitarios (~220)    \  clasificación, parseo, validación, dispatcher
 ```
 
 ## Cómo correr los tests
@@ -37,14 +37,14 @@ Cada test que usa `db_conn` parte de tablas **vacías** (`TRUNCATE` automático 
 
 | Fichero | Módulo bajo test | Qué prueba |
 |---|---|---|
-| `test_classify_product.py` | `classify.classify_product`, `_detect_language` | Tabla de clasificación completa, la regresión de `" en "` como preposición española, el límite real de la regex de `main_set` (`OP-99` vs `OP-100`), y las 5 ramas de idioma (EN/JP/ES/KR + fallback a `variant_title`) |
+| `test_classify_product.py` | `classify.classify_product`, `_detect_language` | Tabla de clasificación completa, la regresión de `" en "` como preposición española, el límite real de la regex de `main_set` (`OP-99` vs `OP-100`), las 5 ramas de idioma (EN/JP/ES/KR + fallback a `variant_title`), y (2026-08-27) `set_code` con separador de espacio además de guion, lista blanca de prefijos reales (`OP/ST/DP/EB/PRB/DF`, evita falsos positivos como "VOL2"), extracción por volumen para Illustration Box/Playmat, y el orden `LEARN_DECK` antes que `STARTER_DECK` |
 | `test_parse_price.py` | `classify.parse_price_text`, `parse_price_minor_unit` | Formato español/anglosajón, símbolo antes/después, tipos numéricos directos, entradas vacías/inválidas sin excepción |
 | `test_store_config.py` | `domain.StoreConfig.__post_init__` | Validación de configuración por plataforma — la corrección estructural del bug real de Arte9/ZIAL (WooCommerce sin scoping) |
 | `test_request_with_retries.py` | `http_client.request_with_retries` y compañía | Reintentos (200/500/timeout/404/304), `Retry-After` (segundos, fecha HTTP, exceso), reto anti-bot de cookie JS, fallback SSL — HTTP y `time.sleep` mockeados, cero esperas reales |
 | `test_robots_check_target.py` | `dispatcher._robots_check_target` | Mapeo de URL a comprobar contra robots.txt, una por cada una de las 6 plataformas |
 | `test_dispatcher.py` | `dispatcher.get_robots_rules`, `query_store`, `run_all_stores` | Caché de robots.txt (TTL), circuit breaker (apertura/cierre/exclusiones), backoff persistido entre ejecuciones (A.3) — `store_state` sustituida por un dict en memoria para aislar la lógica del dispatcher de Postgres |
 | `test_scraper_shopify.py` | `scrapers/shopify.py` | Paginación, variantes con stock mixto, `refresh_product` (E.2) |
-| `test_scraper_woocommerce.py` | `scrapers/woocommerce.py` | Scoping AND (no OR) de categoría+nombre, fallback API→HTML, paginación de la Store API, `_clean_leaked_markup`/`_extract_price` (casos reales de Arte9), `refresh_product` |
+| `test_scraper_woocommerce.py` | `scrapers/woocommerce.py` | Scoping AND (no OR) de categoría+nombre, fallback API→HTML, paginación de la Store API, `_clean_leaked_markup`/`_extract_price` (casos reales de Arte9), `refresh_product`, y (2026-08-27) `_looks_truncated`/`_resolve_truncated_name` — resuelve nombres recortados en el listado visitando la ficha individual, genérico por patrón, no atado a ninguna tienda |
 | `test_scraper_prestashop.py` | `scrapers/prestashop.py` | Paginación, detección de página repetida, límite duro de 50 páginas, microdata schema.org en la ficha individual |
 | `test_scraper_odoo.py` | `scrapers/odoo.py` | JSON-LD de disponibilidad (InStock/OutOfStock/ausente), paginación, `refresh_product` |
 | `test_scraper_opencart.py` | `scrapers/opencart.py` | Palabras clave de stock en tarjeta vs. ficha completa (falso positivo real de "opciones disponibles"), extracción de `id_product`, saneo del prefijo "Clic para ampliar" |
@@ -52,7 +52,7 @@ Cada test que usa `db_conn` parte de tablas **vacías** (`TRUNCATE` automático 
 | `test_persistence.py` | `persistence.py` | `sync_stores` (UPSERT, campos dinámicos protegidos), las 5 reglas de restock (B.2), atomicidad por tienda (B.3), truncado defensivo, filtrado de productos inválidos — contra Postgres real |
 | `test_refresh_hot_products.py` | `persistence.refresh_hot_products` | Selección de calientes (`is_hot`/`hot_until`), agrupación por URL, aplicar resultado del refresco (precio/stock/restock), errores del scraper |
 | `test_store_state.py` | `store_state.py` | Lectura/escritura contra columnas de `store` (migrado de JSON), degradación sin Postgres disponible |
-| `test_matcher.py` | `matcher.py` | Tabla de umbrales de C.2 con límites exactos (`>` vs `>=` en 0.6 y 0.35), exclusión `not_applicable` de LOTE_CARTAS/OTROS, `run_matching` end-to-end, `find_missing_canonical_candidates` (C.1) |
+| `test_matcher.py` | `matcher.py` | Tabla de umbrales de C.2 con límites exactos (`>` vs `>=` en 0.6 y 0.35), exclusión `not_applicable` de LOTE_CARTAS/OTROS, `run_matching` end-to-end, `find_missing_canonical_candidates` (C.1), y (2026-08-27) `_best_candidate` prioriza `set_code` exacto y variante caja/sobre sobre similitud pura, solo rechaza por "set distinto" cuando AMBOS lados traen código (no confunde "no sé" con "sé que es distinto") |
 | `test_seed_official_catalog.py` | `seed_official_catalog.py` | Construcción de nombre canónico, duplicado Booster Box/Pack, idempotencia, productos sin categoría omitidos |
 | `test_sitemap_poller.py` | `sitemap_poller.py` | Sitemap índice vs. plano, filtro por sub-sitemap "product", filtro por prefijo de ruta conocido, filtro por palabra clave del juego, tope `MAX_NEW_URLS_PER_POLL` |
 | `test_restock_notifier.py` | `restock_notifier.py` | Envío exitoso, `410 Gone` (borra suscripción), error recuperable (no borra), sin VAPID configurada, aislamiento entre tiendas (`store_id`) |
