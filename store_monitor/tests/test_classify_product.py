@@ -77,6 +77,41 @@ class TestClassifyProductTable:
             "BOOSTER_BOX", "OP16", "EN", "OP16",
             id="EN-mayuscula-como-codigo-de-idioma-real",
         ),
+        pytest.param(
+            "KID – STARTER DECK ONE PIECE – ST 36", None,
+            "STARTER_DECK", "ST36", None, None,
+            id="set-code-con-espacio-en-vez-de-guion-caso-real-arte9",
+        ),
+        pytest.param(
+            "LEARN TOGETHER DECK SET – STARTER DECKS ONE PIECE", None,
+            "LEARN_DECK", None, None, None,
+            id="learn-deck-gana-a-starter-deck-pese-a-contener-starter-decks",
+        ),
+        pytest.param(
+            "ONE PIECE CARD GAME - THE BEST VOL2 - PRB02 - EN", None,
+            "PREMIUM_COLLECTION", "PRB02", "EN", None,
+            id="prefijo-generico-VOL-no-es-set-code-solo-prefijos-de-la-lista-blanca",
+        ),
+        pytest.param(
+            "ONE PIECE CARD GAME - ILLUSTRATION BOX IB-06 - EN", None,
+            "ILLUSTRATION_BOX", None, "EN", None,
+            id="prefijo-IB-no-esta-en-la-lista-blanca-set-code-none",
+        ),
+        pytest.param(
+            "One Piece Illustration Box Vol.6 Law & Rosinante OP13", None,
+            "ILLUSTRATION_BOX", "VOL06", None, "OP13",
+            id="illustration-box-usa-vol-no-el-op-decorativo-de-acompanamiento",
+        ),
+        pytest.param(
+            "One Piece Playmat Limited Edition Vol.1 + 3 Sobres OP-15", None,
+            "PLAYMAT", "VOL01", None, "OP15",
+            id="playmat-usa-vol-no-el-op-decorativo-de-acompanamiento",
+        ),
+        pytest.param(
+            "Official Playmat Limited Edition Vol.3 EN", None,
+            "PLAYMAT", "VOL03", "EN", None,
+            id="playmat-vol-de-un-solo-digito-se-normaliza-con-cero",
+        ),
     ]
 
     @pytest.mark.parametrize("name,variant_title,product_type,set_code,language,main_set", CASES)

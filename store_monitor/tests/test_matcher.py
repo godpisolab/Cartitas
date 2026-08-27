@@ -23,10 +23,15 @@ def make_classification(product_type="BOOSTER_BOX", set_code="OP11", language="E
     return Classification(product_type=product_type, set_code=set_code, language=language, main_set=main_set)
 
 
-def stub_candidate(monkeypatch, product_id=1, main_set="OP11", language="EN", score=0.75):
-    monkeypatch.setattr(matcher, "_best_candidate", lambda cur, category_id, raw_name: (
-        (product_id, main_set, language, score) if score is not None else None
-    ))
+def stub_candidate(monkeypatch, product_id=1, set_code="OP11", language="EN", score=0.75):
+    def _fake_best_candidate(cur, category_id, raw_name, set_code=None):
+        # El parámetro `set_code` de aquí es el BUSCADO (lo que _evaluate
+        # le pasa) -- se ignora a propósito, el stub siempre devuelve el
+        # candidato fijo configurado arriba, sea cual sea la búsqueda.
+        return (product_id, candidate_set_code, language, score) if score is not None else None
+
+    candidate_set_code = set_code
+    monkeypatch.setattr(matcher, "_best_candidate", _fake_best_candidate)
 
 
 def seed_category(conn, slug="booster-box", name="Booster Box"):
@@ -46,7 +51,7 @@ def seed_category(conn, slug="booster-box", name="Booster Box"):
 class TestUmbralesDeConfianza:
     def test_coincide_todo_similarity_075_confirmed(self, db_conn, monkeypatch):
         category_id = seed_category(db_conn)
-        stub_candidate(monkeypatch, main_set="OP11", language="EN", score=0.75)
+        stub_candidate(monkeypatch, set_code="OP11", language="EN", score=0.75)
         with db_conn.cursor() as cur:
             outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "booster-box", "raw name")
         assert outcome.match_status == "confirmed"
@@ -78,7 +83,7 @@ class TestUmbralesDeConfianza:
 
     def test_idioma_no_coincide_degrada_a_needs_review_aunque_similarity_sea_alta(self, db_conn, monkeypatch):
         category_id = seed_category(db_conn)
-        stub_candidate(monkeypatch, main_set="OP11", language="JP", score=0.90)  # candidato en JP
+        stub_candidate(monkeypatch, set_code="OP11", language="JP", score=0.90)  # candidato en JP
         classification = make_classification(language="EN")  # pero el raw_name se detectó como EN
         with db_conn.cursor() as cur:
             outcome = matcher._evaluate(cur, {"booster-box": category_id}, classification, "booster-box", "raw name")
@@ -86,7 +91,7 @@ class TestUmbralesDeConfianza:
 
     def test_idioma_no_detectado_tambien_degrada_a_needs_review(self, db_conn, monkeypatch):
         category_id = seed_category(db_conn)
-        stub_candidate(monkeypatch, main_set="OP11", language="EN", score=0.90)
+        stub_candidate(monkeypatch, set_code="OP11", language="EN", score=0.90)
         classification = make_classification(language=None)  # no se detectó idioma en el raw_name
         with db_conn.cursor() as cur:
             outcome = matcher._evaluate(cur, {"booster-box": category_id}, classification, "booster-box", "raw name")
@@ -104,21 +109,40 @@ class TestUmbralesDeConfianza:
         # que 0.35, así que pasa el primer filtro (podría acabar needs_review
         # si el resto de condiciones se cumplen).
         category_id = seed_category(db_conn)
-        stub_candidate(monkeypatch, main_set="OP11", language="EN", score=0.35)
+        stub_candidate(monkeypatch, set_code="OP11", language="EN", score=0.35)
         with db_conn.cursor() as cur:
             outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "booster-box", "raw name")
         assert outcome.match_status == "needs_review"
 
-    def test_main_set_no_coincide_es_unmatched_pese_a_similarity_alta(self, db_conn, monkeypatch):
+    def test_set_code_no_coincide_es_unmatched_pese_a_similarity_alta(self, db_conn, monkeypatch):
         # El caso que evita falsos positivos por nombres parecidos: mismo
-        # tipo de producto, similarity muy alta (0.90), pero de OTRO set.
+        # tipo de producto, similarity muy alta (0.90), pero de OTRO set/código
+        # -- caso real encontrado revisando la cola (2026-08-27): "Starter
+        # Deck ONE PIECE FILM edition ST-05" ganaba por similitud de texto a
+        # variantes de OTRO código (ST-30 vs ST-31, etc).
         category_id = seed_category(db_conn)
-        stub_candidate(monkeypatch, main_set="OP99", language="EN", score=0.90)
-        classification = make_classification(main_set="OP11")  # el raw_name es de OP11
+        stub_candidate(monkeypatch, set_code="OP99", language="EN", score=0.90)
+        classification = make_classification(set_code="OP11")  # el raw_name es de OP11
         with db_conn.cursor() as cur:
             outcome = matcher._evaluate(cur, {"booster-box": category_id}, classification, "booster-box", "raw name")
         assert outcome.match_status == "unmatched"
         assert outcome.product_id is None
+
+    def test_set_code_solo_en_un_lado_no_rechaza_por_ese_motivo(self, db_conn, monkeypatch):
+        # Regresión real encontrada simulando el impacto contra datos reales
+        # (2026-08-27): Illustration Box/Devil Fruits Collection nunca
+        # tienen set_code poblado en el catálogo (sembrados desde "Vol.N",
+        # sin código en mayúsculas) -- si la tienda SÍ trae un código
+        # reconocible ("IB-06"), comparar a secas ("IB06" != None)
+        # rechazaba de más. Que falte el dato en UN lado no es evidencia de
+        # que sea otro lanzamiento -- solo lo es si AMBOS lados lo traen y
+        # no coincide (ver el test de arriba).
+        category_id = seed_category(db_conn)
+        stub_candidate(monkeypatch, set_code=None, language="EN", score=0.75)  # candidato sin set_code
+        classification = make_classification(set_code="IB06")  # pero el raw_name sí trae uno
+        with db_conn.cursor() as cur:
+            outcome = matcher._evaluate(cur, {"booster-box": category_id}, classification, "booster-box", "raw name")
+        assert outcome.match_status == "confirmed"  # sigue el flujo normal de umbrales, no se rechaza
 
     def test_sin_ningun_candidato_en_la_categoria_es_unmatched(self, db_conn, monkeypatch):
         category_id = seed_category(db_conn)
@@ -126,6 +150,89 @@ class TestUmbralesDeConfianza:
         with db_conn.cursor() as cur:
             outcome = matcher._evaluate(cur, {"booster-box": category_id}, make_classification(), "booster-box", "raw name")
         assert outcome.match_status == "unmatched"
+
+
+# ===========================================================================
+# _best_candidate -- set_code exacto gana a similitud pura (contra Postgres
+# real: hace falta similarity() de pg_trgm de verdad, no un stub)
+# ===========================================================================
+
+class TestBestCandidatePrioridadDeSetCode:
+    def _seed_product(self, conn, category_id, name_canonical, set_code):
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO game (name, slug) VALUES ('One Piece','one-piece') "
+                        "ON CONFLICT (slug) DO NOTHING")
+            cur.execute("SELECT id FROM game WHERE slug='one-piece'")
+            game_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO product (game_id, category_id, set_code, name_canonical) "
+                "VALUES (%s, %s, %s, %s) RETURNING id",
+                (game_id, category_id, set_code, name_canonical),
+            )
+            return cur.fetchone()[0]
+
+    def test_set_code_exacto_gana_aunque_tenga_menos_similitud_de_texto(self, db_conn):
+        # Caso real encontrado revisando la cola de Arte9 (2026-08-27): el
+        # texto genérico "ST-05" comparte más palabras con el raw_name
+        # ("Starter Deck", "ONE PIECE") que el candidato realmente correcto
+        # (ST-31), así que gana en similarity() pura -- pero NO es el mismo
+        # producto. set_code debe desempatar a favor del código correcto.
+        category_id = seed_category(db_conn)
+        generico_id = self._seed_product(
+            db_conn, category_id, "Starter Deck ONE PIECE FILM edition ST-05 EN", "ST05",
+        )
+        correcto_id = self._seed_product(
+            db_conn, category_id, "Starter Deck: Red Monkey.D.Luffy ST-31 EN", "ST31",
+        )
+
+        with db_conn.cursor() as cur:
+            candidate = matcher._best_candidate(
+                cur, category_id, "LUFFY – STARTER DECK ONE PIECE – ST 31", set_code="ST31",
+            )
+
+        assert candidate[0] == correcto_id
+        assert candidate[0] != generico_id
+
+    def test_sin_set_code_en_el_raw_name_se_queda_con_similitud_pura(self, db_conn):
+        # Degradación segura: si el raw_name no trae código reconocible
+        # (set_code=None), el comportamiento es el de siempre -- top-1 por
+        # similarity(), sin preferencia artificial por ningún candidato.
+        category_id = seed_category(db_conn)
+        self._seed_product(db_conn, category_id, "Starter Deck ONE PIECE FILM edition ST-05 EN", "ST05")
+        mas_parecido_id = self._seed_product(
+            db_conn, category_id, "Starter Deck ONE PIECE FILM edition ST-06 EN", "ST06",
+        )
+
+        with db_conn.cursor() as cur:
+            candidate = matcher._best_candidate(
+                cur, category_id, "Starter Deck ONE PIECE FILM edition ST-06 EN", set_code=None,
+            )
+
+        assert candidate[0] == mas_parecido_id
+
+    def test_caja_vs_sobre_con_mismo_set_code_desempata_por_variante(self, db_conn):
+        # Caso real encontrado revisando la cola (2026-08-27): "Premium
+        # Booster" (sobre) y "Premium Booster Box" (caja) del mismo PRB-02
+        # conviven en la MISMA categoría con el MISMO set_code -- ese
+        # desempate no distingue cuál es cuál, hace falta is_box_variant().
+        category_id = seed_category(db_conn, slug="premium-collection")
+        sobre_id = self._seed_product(
+            db_conn, category_id, "Premium Booster: One Piece Card The Best vol.2 PRB-02 EN", "PRB02",
+        )
+        caja_id = self._seed_product(
+            db_conn, category_id, "Premium Booster Box: One Piece Card The Best vol.2 PRB-02 EN", "PRB02",
+        )
+
+        with db_conn.cursor() as cur:
+            candidato_para_caja = matcher._best_candidate(
+                cur, category_id, "CAJA THE BEST VOL.2 – PRB-02 – ONE PIECE", set_code="PRB02",
+            )
+            candidato_para_sobre = matcher._best_candidate(
+                cur, category_id, "SOBRE THE BEST VOL.2 – PRB-02 – ONE PIECE", set_code="PRB02",
+            )
+
+        assert candidato_para_caja[0] == caja_id
+        assert candidato_para_sobre[0] == sobre_id
 
 
 # ===========================================================================

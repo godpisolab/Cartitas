@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 from sqlmodel import Session, select
 
 from shared.classify import (
@@ -31,6 +31,7 @@ from shared.classify import (
     PRODUCT_TYPE_TO_CATEGORY_SLUG,
     classify_product,
     classify_with_category,
+    is_box_variant,
 )
 from errors import ConflictError, NotFoundError, UnprocessableEntityError
 from models.category import Category
@@ -59,23 +60,66 @@ def _category_id_for_slug(session: Session, slug: str | None) -> int | None:
     return session.exec(select(Category.id).where(Category.slug == slug)).first()
 
 
-def _top_candidates(session: Session, category_id: int | None, raw_name: str) -> list[MatchCandidate]:
+def _top_candidates(
+    session: Session, category_id: int | None, raw_name: str, set_code: str | None = None,
+) -> list[MatchCandidate]:
+    """Top-3 por similarity, con el mismo desempate por set_code exacto que
+    ya usa store_monitor/matcher.py::_best_candidate() (revisión de la cola
+    de matching, 2026-08-27): varios raw_names de la misma familia comparten
+    casi todo el texto salvo el código (ej. "Starter Deck ONE PIECE FILM
+    edition ST-05", reutilizado como plantilla, gana en similarity() pura a
+    la variante concreta correcta) -- cuando el raw_name trae un código
+    reconocible, el candidato de ESE código sale primero en la lista que ve
+    quien revisa, no enterrado en el puesto #2 o #3."""
     if category_id is None:
         return []
     similarity = func.similarity(Product.name_canonical, raw_name)
+    order_by = [similarity.desc()]
+
+    # Segundo desempate por CAJA/SOBRE (is_box_variant, mismo hallazgo que
+    # set_code): dentro de una MISMA categoría+set_code puede convivir la
+    # variante caja y la de un sobre suelto ("Premium Booster"/"Premium
+    # Booster Box", ambas PRB-02, misma categoría premium-collection) --
+    # antes de esta señal, similarity() podía preferir la variante
+    # equivocada. Insertado ANTES del desempate de set_code para que se
+    # aplique primero -- si difieren, importa más "es la misma variante"
+    # que "es marginalmente más largo el código coincidente" (en la
+    # práctica no hay conflicto real entre ambos, pero el orden documenta
+    # la prioridad pretendida).
+    # Solo se comprueba "box" en el lado del candidato (no "caja") --
+    # name_canonical está siempre en inglés (verificado: 0 filas con "caja"
+    # en el catálogo), a diferencia de raw_name que sí puede venir en
+    # español y por eso is_box_variant() comprueba ambas palabras ahí.
+    is_box = is_box_variant(raw_name)
+    if is_box is not None:
+        box_match = case(
+            (Product.name_canonical.ilike("%box%") == is_box, 1),
+            else_=0,
+        )
+        order_by.insert(0, box_match.desc())
+
+    if set_code:
+        # CASE explícito, no (Product.set_code == set_code).desc() a secas:
+        # Postgres ordena NULL PRIMERO en DESC por defecto -- con la
+        # comparación cruda, los candidatos SIN set_code (accesorios,
+        # playmats...) se colarían delante del que sí coincide de verdad.
+        # CASE WHEN trata NULL como "no cumple" (igual que FALSE), no como
+        # un tercer valor que ordenar aparte.
+        set_code_match = case((Product.set_code == set_code, 1), else_=0)
+        order_by.insert(0, set_code_match.desc())
     rows = session.exec(
         select(Product.id, Product.name_canonical, similarity.label("score"))
         .where(Product.category_id == category_id)
-        .order_by(similarity.desc())
+        .order_by(*order_by)
         .limit(TOP_CANDIDATES_LIMIT)
     ).all()
     return [MatchCandidate(product_id=pid, name_canonical=name, similarity=float(score)) for pid, name, score in rows]
 
 
 def _candidates_for(session: Session, raw_name: str, raw_variant: str | None) -> list[MatchCandidate]:
-    _classification, category_slug = classify_with_category(raw_name, raw_variant)
+    classification, category_slug = classify_with_category(raw_name, raw_variant)
     category_id = _category_id_for_slug(session, category_slug)
-    return _top_candidates(session, category_id, raw_name)
+    return _top_candidates(session, category_id, raw_name, classification.set_code)
 
 
 def _to_item(store_product: StoreProduct, store: Store, candidates: list[MatchCandidate]) -> MatchItem:

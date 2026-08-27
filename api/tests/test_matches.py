@@ -42,7 +42,7 @@ def seed_store_product(session, *, raw_name="One Piece TCG OP16 Booster Box (EN)
 
 
 def seed_product(session, *, name_canonical="Booster Box: The Time of Battle OP-16 EN", category_id=None,
-                  main_set="OP16", language="EN") -> int:
+                  main_set="OP16", language="EN", set_code=None) -> int:
     session.exec(text("INSERT INTO game (name, slug) VALUES ('One Piece', 'one-piece') "
                        "ON CONFLICT (slug) DO NOTHING"))
     game_id = session.exec(text("SELECT id FROM game WHERE slug = 'one-piece'")).first()[0]
@@ -50,10 +50,11 @@ def seed_product(session, *, name_canonical="Booster Box: The Time of Battle OP-
         category_id = seed_category(session)
     product_id = session.exec(
         text("""
-            INSERT INTO product (game_id, category_id, main_set, language, name_canonical)
-            VALUES (:g, :c, :m, :l, :n) RETURNING id
+            INSERT INTO product (game_id, category_id, main_set, language, name_canonical, set_code)
+            VALUES (:g, :c, :m, :l, :n, :sc) RETURNING id
         """),
-        params={"g": game_id, "c": category_id, "m": main_set, "l": language, "n": name_canonical},
+        params={"g": game_id, "c": category_id, "m": main_set, "l": language, "n": name_canonical,
+                "sc": set_code},
     ).first()[0]
     session.commit()
     return product_id, category_id
@@ -181,6 +182,88 @@ class TestFiltroSimilarity:
         result = matches_service.list_matches(session, MatchFilters(max_similarity=0.5))
 
         assert result.data == []
+
+
+class TestCandidatosPriorizanSetCodeExacto:
+    """Revisión de la cola de matching (2026-08-27): un candidato genérico
+    reutilizado como plantilla en muchos nombres (ej. "Starter Deck ONE
+    PIECE FILM edition ST-05") puede ganar por similitud de texto pura al
+    candidato realmente correcto de otro código -- set_code debe desempatar
+    a favor del código que trae el raw_name, no dejarlo enterrado en el
+    puesto #2/#3."""
+
+    def test_candidato_de_set_code_exacto_sale_primero_pese_a_menos_similitud(self, session):
+        category_id = seed_category(session, slug="starter-deck")
+        _, _ = seed_product(
+            session, category_id=category_id,
+            name_canonical="Starter Deck ONE PIECE FILM edition ST-05 EN", set_code="ST05",
+        )
+        correcto_id, _ = seed_product(
+            session, category_id=category_id,
+            name_canonical="Starter Deck: Red Monkey.D.Luffy ST-31 EN", set_code="ST31",
+        )
+        seed_store_product(session, raw_name="LUFFY – STARTER DECK ONE PIECE – ST 31")
+
+        result = matches_service.list_matches(session, MatchFilters())
+
+        assert result.data[0].candidates[0].product_id == correcto_id
+
+    def test_sin_set_code_reconocible_se_queda_con_similitud_pura(self, session):
+        category_id = seed_category(session, slug="starter-deck")
+        mas_parecido_id, _ = seed_product(
+            session, category_id=category_id, name_canonical="Starter Deck ONE PIECE FILM edition EN",
+        )
+        seed_product(session, category_id=category_id,
+                     name_canonical="Mazo de inicio con un texto completamente distinto")
+        # Sin dígitos -- classify_product() no extrae ningún set_code de
+        # este raw_name, así que el desempate por código no aplica y manda
+        # la similitud de texto de siempre (comparte "Starter Deck ONE
+        # PIECE FILM" con el primer candidato, nada con el segundo).
+        seed_store_product(session, raw_name="Starter Deck ONE PIECE FILM version")
+
+        result = matches_service.list_matches(session, MatchFilters())
+
+        assert result.data[0].candidates[0].product_id == mas_parecido_id
+
+
+class TestCandidatosPriorizanCajaVsSobre:
+    """Caso real encontrado revisando la cola (2026-08-27): "Premium
+    Booster" (sobre) y "Premium Booster Box" (caja) del mismo PRB-02
+    conviven en la MISMA categoría con el MISMO set_code -- ese desempate
+    no distingue cuál es cuál, hace falta is_box_variant()."""
+
+    def test_caja_prioriza_el_candidato_caja_mismo_set_code(self, session):
+        category_id = seed_category(session, slug="premium-collection")
+        sobre_id, _ = seed_product(
+            session, category_id=category_id,
+            name_canonical="Premium Booster: One Piece Card The Best vol.2 PRB-02 EN", set_code="PRB02",
+        )
+        caja_id, _ = seed_product(
+            session, category_id=category_id,
+            name_canonical="Premium Booster Box: One Piece Card The Best vol.2 PRB-02 EN", set_code="PRB02",
+        )
+        seed_store_product(session, raw_name="CAJA THE BEST VOL.2 – PRB-02 – ONE PIECE")
+
+        result = matches_service.list_matches(session, MatchFilters())
+
+        assert result.data[0].candidates[0].product_id == caja_id
+        assert result.data[0].candidates[0].product_id != sobre_id
+
+    def test_sobre_prioriza_el_candidato_sobre_mismo_set_code(self, session):
+        category_id = seed_category(session, slug="premium-collection")
+        sobre_id, _ = seed_product(
+            session, category_id=category_id,
+            name_canonical="Premium Booster: One Piece Card The Best vol.2 PRB-02 EN", set_code="PRB02",
+        )
+        seed_product(
+            session, category_id=category_id,
+            name_canonical="Premium Booster Box: One Piece Card The Best vol.2 PRB-02 EN", set_code="PRB02",
+        )
+        seed_store_product(session, raw_name="SOBRE THE BEST VOL.2 – PRB-02 – ONE PIECE")
+
+        result = matches_service.list_matches(session, MatchFilters())
+
+        assert result.data[0].candidates[0].product_id == sobre_id
 
 
 class TestConfirmMatch:

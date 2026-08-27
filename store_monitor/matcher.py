@@ -9,13 +9,17 @@ es editar CLASSIFICATION_RULES a mano, no reentrenar nada.
 
 Umbrales (C.2, aprobados 2026-08-26 -- valores de partida, a calibrar con
 datos reales):
-- main_set + product_type + language exactos, y similarity > 0.6
+- set_code + product_type + language exactos, y similarity > 0.6
   -> 'confirmed' automático.
-- main_set + product_type coinciden, pero similarity en [0.35, 0.6)
+- set_code + product_type coinciden, pero similarity en [0.35, 0.6)
   (o el idioma no coincide/no se detectó) -> 'needs_review'.
-- main_set NO coincide (aunque el product_type sí -- probablemente el mismo
+- set_code NO coincide (aunque el product_type sí -- probablemente el mismo
   tipo de producto pero de OTRO lanzamiento, similitud de texto engañosa),
   o similarity < 0.35 -> 'unmatched'.
+
+(set_code en vez de main_set desde el 2026-08-27, revisión de la cola de
+matching -- main_set solo está poblado para la familia OP por diseño; ver
+_evaluate() para el detalle.)
 
 LOTE_CARTAS y OTROS (C.5/D.3) nunca entran en este pipeline -- se marcan
 'not_applicable' directamente, sin gastar una consulta de similitud: un
@@ -41,6 +45,7 @@ from shared.classify import (
     PRODUCT_TYPE_TO_CATEGORY_SLUG,
     classify_product,
     classify_with_category,
+    is_box_variant,
 )
 from shared.domain import Classification
 
@@ -61,19 +66,38 @@ def _category_ids(conn) -> dict[str, int]:
         return dict(cur.fetchall())
 
 
-def _best_candidate(cur, category_id: int, raw_name: str):
-    """Top-1 candidato por similarity dentro de la categoría -- basta con 1
-    para decidir el match_status; el top-3 completo (C.3) es responsabilidad
-    del futuro endpoint de revisión, no de este matcher."""
+def _best_candidate(cur, category_id: int, raw_name: str, set_code: Optional[str] = None):
+    """Top-1 candidato dentro de la categoría -- basta con 1 para decidir el
+    match_status; el top-3 completo (C.3) es responsabilidad del futuro
+    endpoint de revisión, no de este matcher.
+
+    Prioriza set_code EXACTO sobre similitud de texto pura (revisión manual
+    de la cola de matching, 2026-08-27): varios raw_names de la misma
+    familia comparten casi todo el texto salvo el código ("Starter Deck:
+    Red Monkey.D.Luffy ST-31" vs "...ST-30"), así que similarity() por sí
+    sola puede preferir un candidato genérico/de otro código sobre el
+    correcto. Cuando el raw_name trae un código reconocible, el candidato
+    de ESE código manda; si no hay ninguno con ese código (o el raw_name no
+    trae código), se degrada a la similitud pura de siempre.
+
+    Segundo desempate por CAJA/SOBRE (is_box_variant, mismo hallazgo):
+    dentro de una MISMA categoría+set_code puede convivir la variante caja
+    y la de un sobre suelto ("Premium Booster"/"Premium Booster Box", ambas
+    PRB-02, misma categoría premium-collection) -- sin esto, similarity()
+    puede preferir la variante equivocada."""
+    is_box = is_box_variant(raw_name)
     cur.execute(
         """
-        SELECT id, main_set, language, similarity(name_canonical, %s) AS score
+        SELECT id, set_code, language, similarity(name_canonical, %s) AS score
         FROM product
         WHERE category_id = %s
-        ORDER BY score DESC
+        ORDER BY
+            (set_code = %s) IS TRUE DESC,
+            (%s IS NOT NULL AND (name_canonical ILIKE '%%box%%' OR name_canonical ILIKE '%%caja%%') = %s) DESC,
+            score DESC
         LIMIT 1
         """,
-        (raw_name, category_id),
+        (raw_name, category_id, set_code, is_box, is_box),
     )
     return cur.fetchone()
 
@@ -91,19 +115,39 @@ def _evaluate(
         # respecto a CLASSIFICATION_RULES. No hay nada contra qué comparar.
         return MatchOutcome("unmatched", None, None)
 
-    candidate = _best_candidate(cur, category_id, raw_name)
+    candidate = _best_candidate(cur, category_id, raw_name, classification.set_code)
     if not candidate:
         return MatchOutcome("unmatched", None, None)
 
-    product_id, main_set, language, score = candidate
+    product_id, set_code, language, score = candidate
     if score < REVIEW_SIMILARITY_THRESHOLD:
         return MatchOutcome("unmatched", None, None)
 
-    if main_set != classification.main_set:
-        # Mismo tipo de producto pero de un LANZAMIENTO distinto -- la
-        # similitud de texto puede ser alta igualmente (ej. "Booster Box"
-        # domina el nombre), pero no es el mismo producto. Nunca
-        # needs_review ni confirmed en este caso.
+    if set_code is not None and classification.set_code is not None and set_code != classification.set_code:
+        # Mismo tipo de producto pero de un LANZAMIENTO/código distinto --
+        # la similitud de texto puede ser alta igualmente (ej. "Starter
+        # Deck ONE PIECE FILM edition ST-05", reutilizado como plantilla en
+        # muchos raw_names parecidos), pero no es el mismo producto. Nunca
+        # needs_review ni confirmed en este caso. set_code en vez de
+        # main_set (2026-08-27, revisión de la cola): main_set solo está
+        # poblado para la familia OP por diseño (schema-postgresql-app-tcg.sql,
+        # "distinto de set_code para Starter Deck/Illustration Box con
+        # código propio") -- set_code sí cubre las 6 familias del catálogo
+        # (OP/ST/DP/EB/PRB/DF) con el MISMO valor que main_set para OP,
+        # así que este cambio no afecta ese caso y sí cierra el hueco para
+        # el resto.
+        #
+        # "is not None" en AMBOS lados a propósito -- NO alcanza con que
+        # difieran los valores tal cual (eso trataría "no sé" igual que "sé
+        # que es distinto"). Encontrado simulando el impacto contra datos
+        # reales (2026-08-27): Illustration Box/Devil Fruits Collection
+        # nunca tienen set_code poblado en el catálogo (se sembraron desde
+        # "Vol.N", sin código en mayúsculas) -- si una tienda SÍ describe el
+        # mismo producto con un código reconocible ("IB-06"), comparar a
+        # secas rechazaba un match que la similitud de texto sí acertaba
+        # antes de este cambio. Solo se rechaza cuando AMBOS lados traen un
+        # código y no coincide -- ahí sí es señal fuerte de que es otro
+        # lanzamiento, no ambigüedad por falta de dato.
         return MatchOutcome("unmatched", None, None)
 
     language_matches = classification.language is not None and language == classification.language
