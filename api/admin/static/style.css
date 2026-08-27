@@ -29,6 +29,24 @@ main {
   padding: 1.5rem;
 }
 
+.status-filter {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.status-filter a {
+  padding: 0.25rem 0.6rem;
+  border-radius: 3px;
+  color: #1a1a1a;
+  text-decoration: none;
+}
+
+.status-filter a.active {
+  background: #1a1a1a;
+  color: #fff;
+}
+
 table.matches-table {
   border-collapse: collapse;
   width: 100%;
@@ -58,4 +76,36 @@ ul.candidates li {
 
 button {
   cursor: pointer;
+}
+
+.reject-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 10rem;
+}
+
+.search-form {
+  margin-bottom: 1rem;
+}
+
+.product-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 30rem;
+}
+
+.product-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.form-error {
+  background: #fdecea;
+  color: #611a15;
+  border: 1px solid #f5c6cb;
+  padding: 0.5rem 0.75rem;
+  border-radius: 3px;
 }

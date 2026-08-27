@@ -195,6 +195,18 @@ def get_price_history(session: Session, product_id: int, store_id: int | None) -
     return PriceHistorySeries(product_id=product_id, store_id=store_id, series=points)
 
 
+def get_raw(session: Session, product_id: int) -> Product:
+    """Producto canónico "tal cual" en BBDD, sin exigir ningún listing
+    confirmado -- a diferencia de get_by_id() (pensado para la ficha
+    pública, 404 sin listings). Usado por el formulario de edición del
+    panel de administración: un producto recién creado, todavía sin
+    ningún match confirmado, tiene que poder editarse igual."""
+    product = session.get(Product, product_id)
+    if product is None:
+        raise NotFoundError(f"No existe el producto {product_id}")
+    return product
+
+
 def _to_detail_without_listings(session: Session, product: Product) -> ProductDetail:
     """Usado por create_product/patch_product: el `product` recién creado/
     editado puede no tener NINGÚN store_product confirmado todavía (de

@@ -58,3 +58,6 @@ class StoreProduct(SQLModel, table=True):
     # fila por última vez desde el panel -- matcher.run_matching() nunca la
     # toca. Ver GET /matches (routers/matches.py) para el uso del filtro.
     reviewed_at: datetime | None = None
+    # Nota libre de quien rechazó el match (POST /matches/{id}/reject) --
+    # /reopen la limpia a NULL igual que reviewed_at.
+    reviewed_reason: str | None = None

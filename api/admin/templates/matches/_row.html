@@ -5,7 +5,10 @@
     {% if item.raw_variant %}<br><small>{{ item.raw_variant }}</small>{% endif %}
   </td>
   <td>{{ "%.2f"|format(item.current_price) if item.current_price is not none else "—" }}</td>
-  <td>{{ item.match_status.value }}</td>
+  <td>
+    {{ item.match_status.value }}
+    {% if item.reviewed_reason %}<br><small>{{ item.reviewed_reason }}</small>{% endif %}
+  </td>
   <td>
     {% if item.match_status.value == "confirmed" %}
       Producto #{{ item.product_id }}
@@ -35,11 +38,15 @@
         Reabrir
       </button>
     {% else %}
-      <button hx-post="/admin/matches/{{ item.store_product_id }}/reject"
-              hx-target="closest tr" hx-swap="outerHTML"
-              hx-vals='{"mark_as": "unmatched"}'>
-        Descartar
-      </button>
+      <form class="reject-form" hx-post="/admin/matches/{{ item.store_product_id }}/reject"
+            hx-target="closest tr" hx-swap="outerHTML">
+        <select name="mark_as">
+          <option value="unmatched">Sin match</option>
+          <option value="needsReview">Seguir revisando</option>
+        </select>
+        <input type="text" name="reason" placeholder="Motivo (opcional)">
+        <button type="submit">Descartar</button>
+      </form>
     {% endif %}
   </td>
 </tr>

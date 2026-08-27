@@ -18,6 +18,11 @@ class StoreSummary(CamelModel):
 
 
 class StoreDetail(StoreSummary):
+    # Ausente hasta ahora pese a que PATCH sí lo acepta -- hueco real
+    # encontrado al construir el formulario de edición del panel (no se
+    # puede prellenar un campo que la ficha nunca devuelve), docs/
+    # plan-cierre-panel-gestor.md sección 1.5.
+    sitemap_url: str | None
     last_scraped_at: datetime | None
     crawl_delay_seconds: int | None
     disallowed: bool

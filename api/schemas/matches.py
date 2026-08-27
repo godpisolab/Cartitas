@@ -55,6 +55,7 @@ class MatchItem(CamelModel):
     stock_status: StockStatus
     match_status: MatchStatus
     reviewed_at: datetime | None
+    reviewed_reason: str | None
     candidates: list[MatchCandidate]
     # Solo tienen valor real cuando match_status == confirmed (docs/
     # api-endpoints-gestor.md sección 1) -- se serializan como `null` en el

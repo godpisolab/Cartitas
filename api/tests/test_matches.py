@@ -22,7 +22,8 @@ def seed_category(session, slug="booster-box"):
 
 
 def seed_store_product(session, *, raw_name="One Piece TCG OP16 Booster Box (EN)", store_name="Cardzone",
-                        match_status="needs_review", product_id=None, reviewed_at=None) -> int:
+                        match_status="needs_review", product_id=None, reviewed_at=None,
+                        reviewed_reason=None) -> int:
     store_id = session.exec(
         text("INSERT INTO store (name, website_url, platform) VALUES (:n, :u, 'shopify') RETURNING id"),
         params={"n": store_name, "u": f"https://{store_name.lower()}.example"},
@@ -30,12 +31,14 @@ def seed_store_product(session, *, raw_name="One Piece TCG OP16 Booster Box (EN)
     sp_id = session.exec(
         text("""
             INSERT INTO store_product (store_id, product_id, match_status, store_url, raw_name,
-                                        current_price, stock_status, reviewed_at)
-            VALUES (:store_id, :product_id, :status, :url, :raw_name, 119.90, 'disponible', :reviewed_at)
+                                        current_price, stock_status, reviewed_at, reviewed_reason)
+            VALUES (:store_id, :product_id, :status, :url, :raw_name, 119.90, 'disponible',
+                    :reviewed_at, :reviewed_reason)
             RETURNING id
         """),
         params={"store_id": store_id, "product_id": product_id, "status": match_status,
-                "url": f"https://x.example/{store_id}", "raw_name": raw_name, "reviewed_at": reviewed_at},
+                "url": f"https://x.example/{store_id}", "raw_name": raw_name, "reviewed_at": reviewed_at,
+                "reviewed_reason": reviewed_reason},
     ).first()[0]
     session.commit()
     return sp_id
@@ -315,6 +318,7 @@ class TestRejectMatch:
         assert item.match_status.value == "unmatched"
         assert item.product_id is None
         assert item.reviewed_at is not None
+        assert item.reviewed_reason == "prueba"
 
     def test_mark_as_needs_review_tambien_valido(self, session):
         sp_id = seed_store_product(session, match_status="unmatched")
@@ -322,6 +326,22 @@ class TestRejectMatch:
         item = matches_service.reject_match(session, sp_id, RejectBody(mark_as="needsReview"))
 
         assert item.match_status.value == "needs_review"
+
+    def test_reject_guarda_reason_cuando_se_proporciona(self, session):
+        sp_id = seed_store_product(session, match_status="needs_review")
+
+        item = matches_service.reject_match(
+            session, sp_id, RejectBody(mark_as="unmatched", reason="Es un accesorio, no una caja"),
+        )
+
+        assert item.reviewed_reason == "Es un accesorio, no una caja"
+
+    def test_reject_sin_reason_queda_null(self, session):
+        sp_id = seed_store_product(session, match_status="needs_review")
+
+        item = matches_service.reject_match(session, sp_id, RejectBody(mark_as="unmatched"))
+
+        assert item.reviewed_reason is None
 
     def test_404_si_no_existe(self, session):
         with pytest.raises(NotFoundError):
@@ -353,6 +373,15 @@ class TestReopenMatch:
         item = matches_service.reopen_match(session, sp_id)
 
         assert item.reviewed_at is None
+
+    def test_limpia_el_reason_de_un_rechazo_previo(self, session):
+        product_id, _ = seed_product(session)
+        sp_id = seed_store_product(session, match_status="confirmed", product_id=product_id,
+                                    reviewed_at=datetime.now(timezone.utc), reviewed_reason="motivo previo")
+
+        item = matches_service.reopen_match(session, sp_id)
+
+        assert item.reviewed_reason is None
 
 
 class TestMissingCandidates:

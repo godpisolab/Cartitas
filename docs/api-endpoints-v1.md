@@ -340,7 +340,7 @@ Lista las suscripciones activas de un dispositivo, identificado por su `pushEndp
 { "markAs": "unmatched", "reason": "Es un accesorio, no una caja -- classify_product() lo confundió por el nombre" }
 ```
 
-`markAs`: `needsReview` \| `unmatched`. `reason` opcional, texto libre — no se usa para nada automático en v1, solo queda como nota para quien revise después.
+`markAs`: `needsReview` \| `unmatched`. `reason` opcional, texto libre — no se usa para nada automático, solo queda como nota para quien revise después (`store_product.reviewed_reason`, hecho 2026-08-27 — hasta entonces el campo se aceptaba en el body pero se descartaba en silencio, ver `docs/plan-cierre-panel-gestor.md` sección 1.2). `reopen` la limpia a `null` igual que `reviewedAt`.
 
 **Efecto:** `matchStatus = markAs`, `reviewedAt = now()`. `productId` se pone a `null` si no lo estaba ya.
 

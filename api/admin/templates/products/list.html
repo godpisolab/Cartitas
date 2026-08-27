@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Productos — Panel Cartitas{% endblock %}
+{% block content %}
+  <h2>Productos</h2>
+  <form method="get" action="/admin/products" class="search-form">
+    <input type="text" name="q" value="{{ q }}" placeholder="Buscar por nombre...">
+    <button type="submit">Buscar</button>
+  </form>
+  <p><a href="/admin/products/new">+ Nuevo producto canónico</a></p>
+  <table class="matches-table">
+    <thead>
+      <tr>
+        <th>Nombre</th>
+        <th>Juego</th>
+        <th>Categoría</th>
+        <th>Set</th>
+        <th>Idioma</th>
+        <th>Precio mín.</th>
+        <th>Tiendas</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+        <tr>
+          <td>{{ item.name_canonical }}</td>
+          <td>{{ item.game }}</td>
+          <td>{{ item.category }}</td>
+          <td>{{ item.set_code or "—" }}</td>
+          <td>{{ item.language.value if item.language else "—" }}</td>
+          <td>{{ "%.2f"|format(item.min_price) }}</td>
+          <td>{{ item.store_count }}</td>
+          <td><a href="/admin/products/{{ item.id }}/edit">Editar</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8">Sin resultados.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

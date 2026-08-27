@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Candidatos faltantes — Panel Cartitas{% endblock %}
+{% block content %}
+  <h2>Candidatos faltantes</h2>
+  <p><small>Combinaciones que varias tiendas venden pero que no tienen ningún producto canónico en el catálogo.</small></p>
+  <table class="matches-table">
+    <thead>
+      <tr>
+        <th>Tipo</th>
+        <th>Set</th>
+        <th>Idioma</th>
+        <th>Tiendas</th>
+        <th>Acción</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+        <tr>
+          <td>{{ item.product_type }}</td>
+          <td>{{ item.main_set or "—" }}</td>
+          <td>{{ item.language or "—" }}</td>
+          <td>{{ item.store_count }}</td>
+          <td>
+            <a href="/admin/products/new?productType={{ item.product_type | urlencode }}&mainSet={{ (item.main_set or '') | urlencode }}&language={{ (item.language or '') | urlencode }}">
+              Crear canónico
+            </a>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">No hay combinaciones sin candidato por ahora.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

@@ -2,6 +2,11 @@
 {% block title %}Cola de matching — Panel Cartitas{% endblock %}
 {% block content %}
   <h2>Cola de matching</h2>
+  <nav class="status-filter">
+    {% for value, label in [("needsReview", "Pendientes"), ("unmatched", "Sin match"), ("confirmed", "Confirmados"), ("all", "Todos")] %}
+      <a href="/admin/matches?status={{ value }}" class="{{ 'active' if status == value }}">{{ label }}</a>
+    {% endfor %}
+  </nav>
   <table class="matches-table">
     <thead>
       <tr>

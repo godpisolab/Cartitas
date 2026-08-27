@@ -15,6 +15,13 @@ def list_games(session: Session) -> list[GameItem]:
     return [GameItem(id=g.id, name=g.name, slug=g.slug) for g in games]
 
 
+def list_categories_flat(session: Session) -> list[Category]:
+    """Lista plana (no el árbol de dos niveles de list_categories(), pensado
+    para el catálogo de filtros público) -- para un <select> de formulario
+    de administración basta con id/name/slug sin jerarquía."""
+    return session.exec(select(Category).order_by(Category.name)).all()
+
+
 def list_categories(session: Session) -> list[CategoryNode]:
     """Árbol de dos niveles (padre -> hijos). `Lote de cartas`/`Otros` (D.3)
     nunca aparecen porque nunca se siembran en `category` -- no hace falta

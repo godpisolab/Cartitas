@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ store.name }} — Panel Cartitas{% endblock %}
+{% block content %}
+  <h2>{{ store.name }}</h2>
+  <p><strong>URL:</strong> <a href="{{ store.website_url }}" target="_blank" rel="noopener">{{ store.website_url }}</a></p>
+  <p><strong>Plataforma:</strong> {{ store.platform.value }}</p>
+  <p><strong>Último barrido:</strong> {{ store.last_scraped_at.strftime("%Y-%m-%d %H:%M") if store.last_scraped_at else "nunca" }}</p>
+  <p><strong>Fallos seguidos:</strong> {{ store.consecutive_failures }}</p>
+  <p><strong>Excluida por robots.txt:</strong> {{ "sí" if store.disallowed else "no" }}</p>
+  <p><strong>Crawl-delay:</strong> {{ store.crawl_delay_seconds if store.crawl_delay_seconds is not none else "—" }}</p>
+  <p><strong>En backoff hasta:</strong> {{ store.backoff_until.strftime("%Y-%m-%d %H:%M") if store.backoff_until else "—" }}</p>
+
+  <h3>Editar</h3>
+  <form method="post" action="/admin/stores/{{ store.id }}" class="product-form">
+    <label>Sitemap URL
+      <input type="text" name="sitemap_url" value="{{ store.sitemap_url or '' }}">
+    </label>
+    <label>
+      <input type="checkbox" name="active" value="true" {{ "checked" if store.active }}>
+      Activa (incluida en el próximo barrido)
+    </label>
+    <button type="submit">Guardar</button>
+  </form>
+{% endblock %}

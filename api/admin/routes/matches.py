@@ -28,6 +28,16 @@ def list_matches(
     return templates.TemplateResponse(request, "matches/list.html", {"items": page.data, "status": status})
 
 
+@router.get("/missing-candidates")
+def missing_candidates(
+    request: Request,
+    minStores: int = Query(2, ge=1),
+    session: Session = Depends(get_session),
+):
+    items = matches_service.missing_candidates(session, minStores)
+    return templates.TemplateResponse(request, "matches/missing_candidates.html", {"items": items})
+
+
 @router.post("/matches/{store_product_id}/confirm")
 def confirm_match(
     store_product_id: int,

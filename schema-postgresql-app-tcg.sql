@@ -105,6 +105,13 @@ CREATE TABLE store_product (
     -- de mañana. GET /matches excluye por defecto lo revisado en los
     -- últimos 14 días (constante de backend, no columna nueva).
     reviewed_at           TIMESTAMPTZ,
+    -- Nota libre de quien rechazó el match (POST /matches/{id}/reject,
+    -- campo `reason` opcional del body) -- documentado desde el principio
+    -- en api-endpoints-v1.md como "queda como nota para quien revise
+    -- después", pero nunca se persistía hasta ahora (docs/
+    -- plan-cierre-panel-gestor.md sección 1.2). /reopen la limpia a NULL,
+    -- igual que reviewed_at -- son la misma decisión deshaciéndose.
+    reviewed_reason       VARCHAR(500),
     -- Incluye raw_variant (no solo store_url): varias variantes de un mismo
     -- producto Shopify (idioma, sobre/caja...) comparten la misma store_url
     -- con stock/precio independientes por variante (caso Pokemillon, D.5) --

@@ -128,6 +128,7 @@ def _to_item(store_product: StoreProduct, store: Store, candidates: list[MatchCa
         raw_name=store_product.raw_name, raw_variant=store_product.raw_variant,
         current_price=store_product.current_price, stock_status=store_product.stock_status,
         match_status=store_product.match_status, reviewed_at=store_product.reviewed_at,
+        reviewed_reason=store_product.reviewed_reason,
         candidates=candidates, product_id=store_product.product_id,
         match_confidence=store_product.match_confidence,
     )
@@ -209,6 +210,7 @@ def reject_match(session: Session, store_product_id: int, body: RejectBody) -> M
 
     store_product.match_status = STATUS_FILTER_TO_ENUM[body.mark_as]
     store_product.reviewed_at = datetime.now(timezone.utc)
+    store_product.reviewed_reason = body.reason
     store_product.product_id = None
     session.add(store_product)
     session.commit()
@@ -230,6 +232,7 @@ def reopen_match(session: Session, store_product_id: int) -> MatchItem:
     store_product.product_id = None
     store_product.match_confidence = None
     store_product.reviewed_at = None  # limpia también el rechazo si lo hubiera habido antes
+    store_product.reviewed_reason = None
     session.add(store_product)
     session.commit()
     session.refresh(store_product)

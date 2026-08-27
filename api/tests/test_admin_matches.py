@@ -117,6 +117,76 @@ class TestAdminListMatches:
         assert resp.status_code == 200
         assert "No hay elementos pendientes de revisión" in resp.text
 
+    def test_filtro_status_confirmed_muestra_solo_confirmados(self, session, client, admin_credentials):
+        product_id = seed_product(session)
+        seed_store_product(session, match_status="needs_review", store_name="TiendaSinRevisar")
+        seed_store_product(session, match_status="confirmed", product_id=product_id, store_name="TiendaConfirmada")
+
+        resp = client.get("/admin/matches?status=confirmed", auth=admin_credentials)
+
+        assert resp.status_code == 200
+        assert "TiendaConfirmada" in resp.text
+        assert "TiendaSinRevisar" not in resp.text
+
+    def test_enlaces_de_filtro_presentes_en_cada_valor(self, client, admin_credentials):
+        resp = client.get("/admin/matches", auth=admin_credentials)
+
+        assert resp.status_code == 200
+        for value in ("needsReview", "unmatched", "confirmed", "all"):
+            assert f"/admin/matches?status={value}" in resp.text
+
+    def test_enlace_del_filtro_activo_marca_la_clase_active(self, client, admin_credentials):
+        resp = client.get("/admin/matches?status=confirmed", auth=admin_credentials)
+
+        assert resp.status_code == 200
+        assert 'href="/admin/matches?status=confirmed" class="active"' in resp.text
+
+
+class TestAdminRejectForm:
+    def test_fila_pendiente_muestra_formulario_con_select_y_reason(self, session, client, admin_credentials):
+        seed_store_product(session, match_status="needs_review")
+
+        resp = client.get("/admin/matches", auth=admin_credentials)
+
+        assert resp.status_code == 200
+        assert 'name="mark_as"' in resp.text
+        assert '<option value="unmatched">' in resp.text
+        assert '<option value="needsReview">' in resp.text
+        assert 'name="reason"' in resp.text
+
+
+class TestAdminMissingCandidates:
+    def test_lista_agrupaciones_reales(self, session, client, admin_credentials):
+        seed_store_product(session, raw_name="Booster Box OP17 EN", store_name="TiendaA")
+        seed_store_product(session, raw_name="Booster Box OP17 EN", store_name="TiendaB")
+
+        resp = client.get("/admin/missing-candidates", auth=admin_credentials)
+
+        assert resp.status_code == 200
+        assert "BOOSTER_BOX" in resp.text
+        assert "<td>2</td>" in resp.text
+
+    def test_respeta_min_stores(self, session, client, admin_credentials):
+        seed_store_product(session, raw_name="Booster Box OP17 EN", store_name="TiendaUnica")
+
+        resp = client.get("/admin/missing-candidates?minStores=2", auth=admin_credentials)
+
+        assert resp.status_code == 200
+        assert "No hay combinaciones sin candidato" in resp.text
+
+    def test_enlace_crear_canonico_preellena_el_formulario(self, session, client, admin_credentials):
+        seed_store_product(session, raw_name="Booster Box OP17 EN", store_name="TiendaA")
+        seed_store_product(session, raw_name="Booster Box OP17 EN", store_name="TiendaB")
+
+        resp = client.get("/admin/missing-candidates", auth=admin_credentials)
+
+        assert resp.status_code == 200
+        assert "/admin/products/new?productType=BOOSTER_BOX&mainSet=OP17&language=EN" in resp.text
+
+    def test_requiere_credenciales(self, client):
+        resp = client.get("/admin/missing-candidates")
+        assert resp.status_code == 401
+
 
 class TestAdminConfirmRejectReopen:
     def test_confirmar_devuelve_fragmento_de_fila_actualizado(self, session, client, admin_credentials):
@@ -140,6 +210,28 @@ class TestAdminConfirmRejectReopen:
 
         assert resp.status_code == 200
         assert "unmatched" in resp.text
+
+    def test_rechazar_con_needs_review_deja_ese_estado(self, session, client, admin_credentials):
+        sp_id = seed_store_product(session, match_status="unmatched")
+
+        resp = client.post(
+            f"/admin/matches/{sp_id}/reject", data={"mark_as": "needsReview"}, auth=admin_credentials,
+        )
+
+        assert resp.status_code == 200
+        assert "needs_review" in resp.text
+
+    def test_rechazar_con_reason_lo_persiste_y_lo_muestra(self, session, client, admin_credentials):
+        sp_id = seed_store_product(session)
+
+        resp = client.post(
+            f"/admin/matches/{sp_id}/reject",
+            data={"mark_as": "unmatched", "reason": "Es un accesorio, no una caja"},
+            auth=admin_credentials,
+        )
+
+        assert resp.status_code == 200
+        assert "Es un accesorio, no una caja" in resp.text
 
     def test_reabrir_un_confirmado_devuelve_fragmento_con_candidatos(self, session, client, admin_credentials):
         product_id = seed_product(session)

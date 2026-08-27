@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}{{ "Editar producto" if mode == "edit" else "Nuevo producto" }} — Panel Cartitas{% endblock %}
+{% block content %}
+  <h2>{{ "Editar producto" if mode == "edit" else "Nuevo producto canónico" }}</h2>
+  {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
+  <form method="post" action="{{ action }}" class="product-form">
+    {% if mode == "create" %}
+      <label>Juego
+        <select name="game_id" required>
+          {% for g in games %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Categoría
+        <select name="category_id" required>
+          {% for c in categories %}
+            <option value="{{ c.id }}" {{ "selected" if c.id == selected_category_id }}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Código de set <input type="text" name="set_code" value="{{ set_code }}"></label>
+      <label>Set principal <input type="text" name="main_set" value="{{ main_set }}"></label>
+      <label>Idioma
+        <select name="language">
+          <option value="">—</option>
+          {% for l in languages %}
+            <option value="{{ l.value }}" {{ "selected" if l.value == selected_language }}>{{ l.value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    {% else %}
+      <p><strong>Juego:</strong> {{ product.game_id }} <small>(no editable)</small></p>
+      <p><strong>Categoría:</strong> {{ product.category_id }} <small>(no editable)</small></p>
+      <p><strong>Código de set:</strong> {{ product.set_code or "—" }} <small>(no editable)</small></p>
+      <p><strong>Set principal:</strong> {{ product.main_set or "—" }} <small>(no editable)</small></p>
+      <p><strong>Idioma:</strong> {{ product.language or "—" }} <small>(no editable)</small></p>
+    {% endif %}
+
+    <label>Nombre canónico
+      <input type="text" name="name_canonical" required value="{{ name_canonical }}">
+    </label>
+    <label>URL de imagen
+      <input type="text" name="image_url" value="{{ image_url }}">
+    </label>
+    <label>
+      <input type="checkbox" name="is_hot" value="true" {{ "checked" if is_hot }}>
+      Destacado (isHot)
+    </label>
+    {% if mode == "edit" %}
+      <label>Destacado hasta
+        <input type="date" name="hot_until" value="{{ hot_until }}">
+      </label>
+    {% endif %}
+
+    <button type="submit">Guardar</button>
+  </form>
+{% endblock %}

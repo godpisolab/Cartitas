@@ -18,6 +18,7 @@ def _to_summary(store: Store) -> StoreSummary:
 def _to_detail(store: Store) -> StoreDetail:
     return StoreDetail(
         **_to_summary(store).model_dump(),
+        sitemap_url=store.sitemap_url,
         last_scraped_at=store.last_scraped_at,
         crawl_delay_seconds=store.crawl_delay_seconds,
         disallowed=store.disallowed,
@@ -29,6 +30,15 @@ def _to_detail(store: Store) -> StoreDetail:
 def list_stores(session: Session) -> list[StoreSummary]:
     stores = session.exec(select(Store).order_by(Store.name)).all()
     return [_to_summary(s) for s in stores]
+
+
+def list_stores_detailed(session: Session) -> list[StoreDetail]:
+    """Como list_stores() pero con los campos de salud (lastScrapedAt,
+    consecutiveFailures...) -- usado por el listado del panel de
+    administración para triage rápido, sin N+1: una sola query, _to_detail()
+    no hace ninguna consulta extra por fila."""
+    stores = session.exec(select(Store).order_by(Store.name)).all()
+    return [_to_detail(s) for s in stores]
 
 
 def _get_or_404(session: Session, store_id: int) -> Store:

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Tiendas — Panel Cartitas{% endblock %}
+{% block content %}
+  <h2>Tiendas</h2>
+  <table class="matches-table">
+    <thead>
+      <tr>
+        <th>Nombre</th>
+        <th>Plataforma</th>
+        <th>Activa</th>
+        <th>Último barrido</th>
+        <th>Fallos seguidos</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+        <tr>
+          <td>{{ item.name }}</td>
+          <td>{{ item.platform.value }}</td>
+          <td>{{ "sí" if item.active else "no" }}</td>
+          <td>{{ item.last_scraped_at.strftime("%Y-%m-%d %H:%M") if item.last_scraped_at else "nunca" }}</td>
+          <td>{{ item.consecutive_failures }}</td>
+          <td><a href="/admin/stores/{{ item.id }}">Ver</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6">Sin tiendas.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}
