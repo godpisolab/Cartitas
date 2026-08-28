@@ -326,6 +326,20 @@ class TestExtraTypeHintDeTags:
         )
         assert result.product_type == "STARTER_DECK"
 
+    def test_codigo_dp_gana_a_tag_generico_de_caja(self):
+        # Caso real (2026-08-28, docs/propuesta-mejoras-matching-sesion.md
+        # punto 0/1): "One Piece | DP-07 A Fist of Divine Speed OP-11" con
+        # la tag genérica "Cajas" caía en BOOSTER_BOX en vez de
+        # DOUBLE_PACK -- name+variant a secas no dan ningún tipo (name_only
+        # queda OTROS), así que el tipo actual venía SOLO de la tag, y el
+        # código DP-07 en el propio texto es señal más fiable.
+        result = classify_product(
+            "One Piece | DP-07 A Fist of Divine Speed OP-11", "Inglés",
+            "Caja One Piece, Cajas, One Piece, OP-11 A Fist of Divine Speed",
+        )
+        assert result.product_type == "DOUBLE_PACK"
+        assert result.set_code == "DP07"
+
     def test_tags_con_case_solo_no_dispara_booster_case(self):
         # Caso real (Golden Pulls, encontrado en una siembra completa
         # contra Postgres real, 2026-08-28): "Booster Box Display OP11" no
@@ -517,3 +531,67 @@ class TestClassifyWithCategory:
     def test_variant_title_se_propaga_igual_que_en_classify_product(self):
         classification, _ = classify_with_category("One Piece TCG", "Inglés")
         assert classification.language == "EN"
+
+
+class TestDFCodePorPatronDeCodigo:
+    """docs/propuesta-mejoras-matching-sesion.md punto 1 -- DF-NN identifica
+    Devil Fruits Collection sin depender de la keyword en inglés ("devil
+    fruits collection"), verificado como prefijo exclusivo en las 194
+    líneas del catálogo oficial completo."""
+
+    @pytest.mark.parametrize("raw_name,esperado_set_code", [
+        ("One Piece | Fruta del Diablo vol.1 [DF-01] Inglés 2023", "DF01"),
+        ("One Piece | Fruta del Diablo Mera Mera vol. 2 [DF-02]", "DF02"),
+        ("One Piece | DF03 Fruta del Diablo Ope Ope No Mi vol. 3 OP12", "DF03"),
+    ])
+    def test_df_code_clasifica_devil_fruits_sin_depender_del_idioma(self, raw_name, esperado_set_code):
+        c = classify_product(raw_name)
+        assert c.product_type == "DEVIL_FRUITS_COLLECTION"
+        assert c.set_code == esperado_set_code
+
+    def test_df_code_gana_pese_a_tag_generico_de_caja(self):
+        # Caso real (2026-08-28): la tienda tiene "Cajas" como tag de
+        # catálogo genérico -- sin el código como señal, esto colaba como
+        # BOOSTER_BOX en vez de DEVIL_FRUITS_COLLECTION.
+        c = classify_product(
+            "One Piece | DF03 Fruta del Diablo Ope Ope No Mi vol. 3  OP12", "Inglés",
+            "Black Friday, Caja One Piece, Cajas, Devil Fruit, One Piece",
+        )
+        assert c.product_type == "DEVIL_FRUITS_COLLECTION"
+        assert c.set_code == "DF03"
+
+    def test_keyword_real_en_el_nombre_sigue_ganando_al_codigo(self):
+        # Si el propio nombre YA trae una keyword real de otro tipo, esa
+        # señal manda -- el código DF-NN no debe poder pisarla (el override
+        # solo se dispara cuando name+variant a secas no dicen nada).
+        c = classify_product("Booster Box Something DF-01", None)
+        assert c.product_type == "BOOSTER_BOX"
+
+
+class TestRangoDeCodigos:
+    """docs/propuesta-mejoras-matching-sesion.md punto 2 -- un rango de
+    códigos ("ST-15 - ST-20", "[ST-31]~[ST-36]") describe un pack ligado a
+    TODO un lote de mazos, no a uno solo -- extraer el primer extremo como
+    si fuera el código propio dispara el fallback cross-categoría contra
+    un Starter Deck completamente ajeno."""
+
+    @pytest.mark.parametrize("raw_name", [
+        "One Piece Sobre ST-15 - ST-20 Release Event Pack",
+        "One Piece Sobre Beginners Deck Party ST-31 - ST-36 Participation Pack",
+        "One Piece Sobre Beginners Deck Party [ST-31]~[ST-36] Winner pack",
+    ])
+    def test_rango_de_codigos_no_extrae_el_primer_extremo(self, raw_name):
+        c = classify_product(raw_name)
+        assert c.set_code is None
+
+    def test_codigo_de_carta_individual_no_se_confunde_con_rango(self):
+        # Regresión encontrada al validar el punto 2: "OP10-058" (numeración
+        # de carta individual dentro de un set, no un rango entre dos sets)
+        # NO debe perder su set_code -- ya cubierto por LOTE_CARTAS/CGC,
+        # pero el propio código debe seguir extrayéndose bien.
+        c = classify_product("Rebecca (OP10-058) (V.1) Royal Blood (Non-English)", "CGC 10")
+        assert c.set_code == "OP10"
+
+    def test_codigo_eb_de_carta_individual_no_se_confunde_con_rango(self):
+        c = classify_product("ONE PIECE CHOPPER’s Vol. 1 carta/comic promocional EB02-003", "")
+        assert c.set_code == "EB02"

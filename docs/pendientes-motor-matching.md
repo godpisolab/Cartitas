@@ -58,6 +58,8 @@ Además, quedan **29 filas residuales** dentro de `booster-box`/`booster-pack` c
 
 **Hecho (2026-08-28), la parte decidida:** `_JP_VARIANT_CATEGORY_SLUGS` en `seed_official_catalog.py` ampliada a `{"booster-box", "booster-pack", "booster-case", "double-pack", "premium-collection"}`. `starter-deck`/`illustration-box`/`devil-fruits-collection`/`learn-deck` siguen fuera, tal como queda "sin decidir" arriba -- no se tocaron. Las 29 filas residuales y la investigación del fallo de scoring EN/JP siguen sin investigar, fuera de esta ronda.
 
+**Hecho (2026-08-28, `docs/propuesta-mejoras-matching-sesion.md` punto 4):** `starter-deck` también añadida -- 7 ejemplos reales más de demanda JP (Pokemillon) confirmaron la señal de volumen que faltaba. `illustration-box`/`devil-fruits-collection`/`learn-deck` siguen sin decidir, sin evidencia todavía.
+
 ### 7. Ambigüedad de texto genuina (233→215 filas del análisis, ~14% del total no confirmado) — investigado, no es un problema de categorías
 
 **Conclusión del estudio: el 98.6% (212 de 215) SÍ tiene categoría correcta asignada.** No falta ninguna categoría — el motivo real es que estas filas no tienen ningún `set_code` que extraer, porque **son productos promocionales/de evento que quedan fuera de la numeración regular de Bandai** (`OP-NN`, `ST-NN`...), no un fallo de clasificación.

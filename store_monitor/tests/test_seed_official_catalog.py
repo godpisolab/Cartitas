@@ -164,19 +164,25 @@ class TestSeedFromCatalog:
         ])
         result = soc.seed_from_catalog(db_conn, catalog_path)
 
-        assert len(result["inserted"]) == 1
-        assert result["inserted"] == ["Starter Deck: Straw Hat Crew ST-01 EN"]
+        # EN + JP (starter-deck sí está en _JP_VARIANT_CATEGORY_SLUGS,
+        # punto 4), pero ningún Case -- eso es lo que prueba este test.
+        assert len(result["inserted"]) == 2
+        assert not any("Case" in name for name in result["inserted"])
 
-    def test_starter_deck_se_siembra_una_sola_vez_sin_variante_jp(self, db_conn, tmp_path):
-        # starter-deck NO está en _JP_VARIANT_CATEGORY_SLUGS todavía --
-        # solo EN, mismo comportamiento que antes de esta ronda.
+    def test_starter_deck_ahora_genera_variante_jp(self, db_conn, tmp_path):
+        # docs/propuesta-mejoras-matching-sesion.md punto 4 (decidido,
+        # 2026-08-28): starter-deck se añadió a _JP_VARIANT_CATEGORY_SLUGS
+        # -- EN + JP, 2 insertados (sin box-variant que duplicar, mismo
+        # patrón que premium-collection/double-pack).
         _seed_game_and_categories(db_conn)
         catalog_path = _write_catalog(tmp_path, [
             {"name": "Starter Deck: Straw Hat Crew", "code": "ST-01"},
         ])
         result = soc.seed_from_catalog(db_conn, catalog_path)
-        assert len(result["inserted"]) == 1
-        assert result["inserted"] == ["Starter Deck: Straw Hat Crew ST-01 EN"]
+        assert len(result["inserted"]) == 2
+        assert set(result["inserted"]) == {
+            "Starter Deck: Straw Hat Crew ST-01 EN", "Starter Deck: Straw Hat Crew ST-01 JP",
+        }
 
     def test_premium_collection_y_double_pack_ahora_generan_variante_jp(self, db_conn, tmp_path):
         # docs/pendientes-motor-matching.md punto 6 (decidido, 2026-08-28):
@@ -224,10 +230,10 @@ class TestSeedFromCatalog:
         result2 = soc.seed_from_catalog(db_conn, catalog_path)
 
         assert result2["inserted"] == []
-        assert len(result2["already_existed"]) == 1
+        assert len(result2["already_existed"]) == 2  # EN + JP (starter-deck, punto 4)
         with db_conn.cursor() as cur:
             cur.execute("SELECT count(*) FROM product")
-            assert cur.fetchone()[0] == 1  # no se duplicó
+            assert cur.fetchone()[0] == 2  # no se duplicó ninguna de las dos
 
     def test_idempotente_tambien_para_la_variante_jp(self, db_conn, tmp_path):
         _seed_game_and_categories(db_conn)

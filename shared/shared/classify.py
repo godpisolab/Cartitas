@@ -123,6 +123,30 @@ _EXTRA_BOOSTER_CODE_RE = re.compile(r"\bEB-?\d{1,2}\b(?!-\d)", re.IGNORECASE)
 _DON_CARD_RE = re.compile(r"\bdon!!", re.IGNORECASE)
 _SEALED_PRODUCT_CONTEXT_RE = re.compile(r"\bset\b|\bpack\b|\bcaja\b|\bbox\b|\bsobres?\b", re.IGNORECASE)
 
+# 4) DF-NN (Devil Fruits Collection) -- mismo motivo que DP-NN arriba, pero
+# con un problema añadido (2026-08-28, docs/propuesta-mejoras-matching-sesion.md
+# punto 1): DEVIL_FRUITS_COLLECTION solo reconocía la keyword en inglés
+# ("devil fruits collection"), así que "Fruta del Diablo vol.1 [DF-01]"
+# caía en OTROS -- o, peor, en BOOSTER_BOX cuando la tienda tenía "Cajas"
+# como tag genérico de catálogo (raw_tags, mismo problema que
+# _BOOSTER_CASE_RE más abajo). DF es un prefijo exclusivo verificado en
+# las 194 líneas del catálogo oficial completo -- señal tan fiable como el
+# propio set_code, sin depender del idioma del resto del texto.
+_DF_CODE_RE = re.compile(r"\bDF-?0?\d{1,2}\b", re.IGNORECASE)
+
+
+def _match_keyword_type(text: str) -> str:
+    """CLASSIFICATION_RULES a secas, sin ninguno de los fallbacks de abajo
+    -- factorizado para poder comprobar qué tipo daría un texto MÁS
+    ACOTADO (solo name+variant, sin tags) por separado del texto completo,
+    y así distinguir "el tipo vino de una keyword real en el nombre" de
+    "el tipo vino SOLO de las tags" (ver _DF_CODE_RE/_DOUBLE_PACK_CODE_RE
+    más abajo, docs/propuesta-mejoras-matching-sesion.md punto 1)."""
+    for tipo, keywords in CLASSIFICATION_RULES:
+        if any(kw in text for kw in keywords):
+            return tipo
+    return "OTROS"
+
 # Mapea Classification.product_type (CLASSIFICATION_RULES de arriba) a
 # category.slug (D.2 -- los 13 tipos reales, sembrados por
 # seed-catalog-app-tcg.sql). LOTE_CARTAS y OTROS quedan fuera a propósito,
@@ -157,6 +181,32 @@ NOT_APPLICABLE_PRODUCT_TYPES = {"LOTE_CARTAS", "OTROS"}
 # aquí) es la única forma soportada de ampliar esto -- nunca aflojar el
 # patrón a algo genérico otra vez.
 _SET_CODE_PREFIXES = ("OP", "ST", "DP", "EB", "PRB", "DF")
+
+# Rango de códigos ("ST-15 - ST-20", "[ST-31]~[ST-36]") -- 2026-08-28,
+# docs/propuesta-mejoras-matching-sesion.md punto 2, caso real: estos
+# packs promocionales están ligados a TODO un lote de mazos (de ST-15 a
+# ST-20), no a uno solo -- mismo fenómeno que "Tournament Pack" (sin
+# código real), solo que aquí la extracción normal cogía el primer extremo
+# del rango pensando que era el código propio del producto, disparaba el
+# fallback cross-categoría (es_fallback=True) y bloqueaba el
+# auto-confirmado.
+#
+# Reutiliza _SET_CODE_PREFIXES en AMBOS extremos, no [A-Z]{2,3} genérico
+# (la regex original propuesta en el documento lo era, con 0 letras
+# permitidas en el segundo extremo) -- probado contra la suite real: eso
+# colisionaba con la numeración de CARTA INDIVIDUAL ("Rebecca (OP10-058)",
+# "EB02-003") tratando "-058"/"-003" como si fueran el segundo extremo de
+# un rango, perdiendo el set_code real de esos casos ya cubiertos por
+# _DOUBLE_PACK_CODE_RE/_EXTRA_BOOSTER_CODE_RE más arriba. Exigir el mismo
+# tipo de prefijo real en los dos lados evita ese falso positivo sin perder
+# ninguno de los rangos reales vistos (todos con letras a ambos lados).
+# Corchetes opcionales en AMBOS extremos -- la regex del documento solo los
+# preveía en el segundo, no matcheaba "[ST-31]~[ST-36]" completo.
+_RANGO_CODIGOS_RE = re.compile(
+    rf"\[?({'|'.join(_SET_CODE_PREFIXES)})[\s-]?\d{{1,3}}\]?\s*[-~]\s*"
+    rf"\[?({'|'.join(_SET_CODE_PREFIXES)})[\s-]?\d{{1,3}}\]?",
+    re.IGNORECASE,
+)
 
 # BOOSTER_CASE (2026-08-28, docs/pendientes-motor-matching.md punto 2):
 # "case" a secas + contexto de producto sellado en el MISMO texto -- código
@@ -275,21 +325,34 @@ def classify_product(
     # consecuente en precio como BOOSTER_CASE.
     name_variant_text = f"{name_lower} {variant_title.lower() if variant_title else ''}"
 
-    product_type = "OTROS"
-    for tipo, keywords in CLASSIFICATION_RULES:
-        if any(kw in type_search_text for kw in keywords):
-            product_type = tipo
-            break
+    product_type = _match_keyword_type(type_search_text)
+
+    # DF-NN/DP-NN por patrón de código, cuando el tipo actual vino SOLO de
+    # las tags (2026-08-28, docs/propuesta-mejoras-matching-sesion.md
+    # puntos 0 y 1) -- si name_variant_text por sí solo YA daba un tipo
+    # real (keyword genuina en el nombre/variante), esa señal manda y no
+    # se toca nada aquí. Solo cuando name+variant a secas no dicen nada
+    # (name_only_type == OTROS) es que el tipo actual, si no es OTROS,
+    # viene forzosamente de un tag de catálogo genérico y reutilizado
+    # (ej. "Cajas") -- un código de set en el propio texto es una señal
+    # mucho más fiable y debe ganar. Nunca sobre LOTE_CARTAS (prioridad
+    # absoluta, igual que BOOSTER_CASE más abajo).
+    name_only_type = _match_keyword_type(name_variant_text)
+    if name_only_type == "OTROS" and _BOOSTER_PACK_PLURAL_RE.search(name_variant_text):
+        name_only_type = "BOOSTER_PACK"
+    if product_type != "LOTE_CARTAS" and name_only_type == "OTROS":
+        if _DF_CODE_RE.search(name_variant_text):
+            product_type = "DEVIL_FRUITS_COLLECTION"
+        elif _DOUBLE_PACK_CODE_RE.search(name_variant_text):
+            # Ver _DON_CARD_RE -- "Don!!" sin contexto de sellado es la
+            # carta suelta de regalo, no el Double Pack Set en sí.
+            if _DON_CARD_RE.search(name_variant_text) and not _SEALED_PRODUCT_CONTEXT_RE.search(name_variant_text):
+                product_type = "PROMO_CARD"
+            else:
+                product_type = "DOUBLE_PACK"
 
     if product_type == "OTROS" and _BOOSTER_PACK_PLURAL_RE.search(type_search_text):
         product_type = "BOOSTER_PACK"
-    if product_type == "OTROS" and _DOUBLE_PACK_CODE_RE.search(type_search_text):
-        # Ver _DON_CARD_RE -- "Don!!" sin contexto de sellado es la carta
-        # suelta de regalo, no el Double Pack Set en sí.
-        if _DON_CARD_RE.search(type_search_text) and not _SEALED_PRODUCT_CONTEXT_RE.search(type_search_text):
-            product_type = "PROMO_CARD"
-        else:
-            product_type = "DOUBLE_PACK"
     if product_type == "OTROS" and _EXTRA_BOOSTER_CODE_RE.search(type_search_text):
         product_type = "BOOSTER_PACK"
 
@@ -350,8 +413,17 @@ def classify_product(
         #
         # Solo los prefijos de _SET_CODE_PREFIXES (lista blanca real, no
         # "cualquier 2-3 mayúsculas") -- ver el comentario de esa constante.
-        set_match = re.search(rf"\b({'|'.join(_SET_CODE_PREFIXES)})[\s-]?(\d{{1,3}})\b", name)
-        set_code = f"{set_match.group(1)}{set_match.group(2)}" if set_match else None
+        #
+        # Rango de códigos primero (ver _RANGO_CODIGOS_RE) -- "Sobre ST-15
+        # - ST-20 Release Event Pack" NO pertenece a un único ST, así que
+        # extraer "ST15" (el primer extremo) sería un código inventado, no
+        # el propio del producto -- se deja en None a propósito, igual que
+        # cuando no hay ningún código reconocible.
+        if _RANGO_CODIGOS_RE.search(name):
+            set_code = None
+        else:
+            set_match = re.search(rf"\b({'|'.join(_SET_CODE_PREFIXES)})[\s-]?(\d{{1,3}})\b", name)
+            set_code = f"{set_match.group(1)}{set_match.group(2)}" if set_match else None
 
     main_set_match = re.search(r"\bOP[\s-]?0*(\d{1,2})\b", name, re.IGNORECASE)
     main_set = f"OP{int(main_set_match.group(1)):02d}" if main_set_match else None

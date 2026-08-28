@@ -67,11 +67,17 @@ _BOOSTER_LABEL_SWAPS = [
 # variante. booster-case incluida a propósito (una vez sembrados sus
 # canónicos, ver seed_from_catalog más abajo) -- un Case es, en esencia,
 # varias Booster Box del mismo lanzamiento, mismo criterio de demanda JP.
-# El resto de categorías de Sellado (starter-deck/illustration-box/
-# devil-fruits-collection/learn-deck) se dejan fuera A PROPÓSITO, sin
-# confirmación de demanda real todavía -- no es descarte, es "sin decidir"
-# (generar de más no rompe nada, pero tampoco hay señal que lo pida hoy).
-_JP_VARIANT_CATEGORY_SLUGS = {"booster-box", "booster-pack", "booster-case", "double-pack", "premium-collection"}
+# starter-deck añadida (2026-08-28, docs/propuesta-mejoras-matching-sesion.md
+# punto 4 -- decidido): 7 ejemplos reales más de demanda JP encontrados
+# revisando la cola (ST-14/ST-11/ST-09/ST-08/ST-36/ST-34/ST-33, todos de
+# Pokemillon) -- la señal de volumen que se dejaba como condición para
+# ampliar la lista ya está aquí. illustration-box/devil-fruits-collection/
+# learn-deck siguen fuera A PROPÓSITO, sin confirmación de demanda real
+# todavía -- no es descarte, es "sin decidir" (generar de más no rompe
+# nada, pero tampoco hay señal que lo pida hoy).
+_JP_VARIANT_CATEGORY_SLUGS = {
+    "booster-box", "booster-pack", "booster-case", "double-pack", "premium-collection", "starter-deck",
+}
 
 
 def _build_name(name: str, code: str | None, language: str = "EN") -> str:
