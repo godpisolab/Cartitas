@@ -178,6 +178,106 @@ class TestClassifyProductTable:
             "BOOSTER_CASE", "ST05", "EN", None,
             id="booster-box-case-keyword-completa",
         ),
+        pytest.param(
+            # docs/pendientes-motor-matching.md punto 2 -- caso real que
+            # SÍ confirmó mal en producción de prueba (commit 161bae5): un
+            # accesorio ("Card Case", una funda de cartas) coló como
+            # BOOSTER_CASE por el patrón genérico "case -" que existía
+            # entonces. No tiene ni palabra de contexto (caja/booster/
+            # sellado) ni código de set -- debe quedar excluido.
+            "Limited Card Case -Monkey.D.Luffy-", None,
+            "OTROS", None, "EN", None,
+            id="card-case-accesorio-no-es-booster-case-regresion-161bae5",
+        ),
+        pytest.param(
+            # Caso real (multi_tienda_one_piece.csv, tienda Master of
+            # Games): "Case" sin ninguna palabra de caja/booster pegada --
+            # solo el código de set. Debe seguir confirmando BOOSTER_CASE
+            # vía el código, no solo vía la palabra de contexto.
+            "[PREORDER] [INGLÉS] One Piece Card Game OP-19 Case", None,
+            "BOOSTER_CASE", "OP19", "EN", "OP19",
+            id="case-sin-booster-ni-box-pegado-confirma-por-codigo-de-set",
+        ),
+        pytest.param(
+            # Caso real (FreakCorp): "Case" + "cajas" (contexto en
+            # español) + código de set, sin ninguna keyword de tipo en
+            # inglés.
+            "Case OP02 Paramount War (12 cajas)", None,
+            "BOOSTER_CASE", "OP02", "EN", "OP02",
+            id="case-con-contexto-cajas-en-espanol",
+        ),
+        pytest.param(
+            # "Dice Case" (un estuche de dados) nunca debe colar como
+            # BOOSTER_CASE -- ninguna palabra de contexto de caja/booster/
+            # sellado, ningún código de set.
+            "One Piece TCG Official Dice and Dice Case Set", None,
+            "DICE_ACCESSORY", None, "EN", None,
+            id="dice-case-no-es-booster-case",
+        ),
+        pytest.param(
+            # "Playmat and Card Case Set" -- PLAYMAT gana por orden de
+            # lista (se comprueba antes), y BOOSTER_CASE tampoco tiene
+            # señal de contexto/código aquí de todas formas.
+            "One Piece Card Game - Playmat and Card Case Set -25th Edition-", None,
+            "PLAYMAT", None, "EN", None,
+            id="playmat-y-card-case-no-es-booster-case",
+        ),
+        pytest.param(
+            # "Case" mencionado sin ningún contexto de producto sellado ni
+            # código de set reconocible -- un producto Funko Pop real del
+            # CSV, no relacionado con Booster Case en absoluto.
+            "Funko Pop! One Piece - Case 5+1 Jewelry Bonney", None,
+            "OTROS", None, "EN", None,
+            id="case-sin-contexto-ni-codigo-no-es-booster-case",
+        ),
+        pytest.param(
+            # docs/pendientes-motor-matching.md punto 7 -- caso real sin
+            # ningún código DF explícito, solo el volumen. "caja" por sí
+            # sola habría capturado esto como BOOSTER_BOX antes de llegar a
+            # LEARN_DECK/DEVIL_FRUITS_COLLECTION si el orden de la lista no
+            # protegiera -- aquí protege por el orden ya existente
+            # (DEVIL_FRUITS_COLLECTION va antes que BOOSTER_BOX).
+            "Caja One Piece Devil Fruits Collection Vol.2 - Ingles", None,
+            "DEVIL_FRUITS_COLLECTION", "DF02", "EN", None,
+            id="devil-fruits-collection-sin-codigo-df-explicito-usa-vol-como-fallback",
+        ),
+        pytest.param(
+            # keyword en español, mismo patrón que "mazo"/"doble pack" --
+            # sin esto, "caja" capturaba como BOOSTER_BOX antes de llegar a
+            # LEARN_DECK.
+            "One Piece | Caja Aprende a Jugar", None,
+            "LEARN_DECK", None, "EN", None,
+            id="learn-deck-aprende-a-jugar-en-espanol",
+        ),
+        pytest.param(
+            # docs/pendientes-motor-matching.md punto 4 -- caso real
+            # confirmado: la carta suelta de regalo DON!! (viene DENTRO de
+            # Double Pack Set Vol.10, vendida por separado) coincidía con
+            # el fallback de código DP-NN y confirmaba contra el Double
+            # Pack Set sellado completo -- precio y unidad de venta
+            # completamente distintos. Sin "set"/"pack"/"caja"/"box"/
+            # "sobre" que confirme que es el sellado -> PROMO_CARD.
+            "Don!! (DP10 Map) - One Piece Products (DON!!)", "English / Near Mint / Normal",
+            "PROMO_CARD", "DP10", "EN", None,
+            id="don-card-suelta-sin-contexto-de-sellado-es-promo-card",
+        ),
+        pytest.param(
+            # Control negativo -- "Pack" en el mismo texto SÍ confirma que
+            # es el sellado completo, se queda como DOUBLE_PACK (caso real,
+            # misma tienda, mismo patrón DON!!+código).
+            "One Piece Special DON!! Card Pack DP-06 - Emperors in the New World (OP09)", "Inglés",
+            "DOUBLE_PACK", "DP06", "EN", "OP09",
+            id="don-card-pack-con-pack-en-el-texto-sigue-siendo-double-pack",
+        ),
+        pytest.param(
+            # Control negativo -- el propio Double Pack Set sellado que
+            # contiene la carta DON!! de regalo, no debe verse afectado
+            # (ya clasifica por la keyword "double pack" en el bucle
+            # principal, nunca llega al fallback con el guard nuevo).
+            "One Piece Card Game Double Pack Set Vol.10 [DP-10] – 2 Booster Packs + Exclusive DON!! Card", None,
+            "DOUBLE_PACK", "DP10", "EN", None,
+            id="double-pack-set-completo-con-don-card-de-regalo-mencionada-no-se-ve-afectado",
+        ),
     ]
 
     @pytest.mark.parametrize("name,variant_title,product_type,set_code,language,main_set", CASES)

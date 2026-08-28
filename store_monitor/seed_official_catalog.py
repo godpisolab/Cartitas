@@ -60,12 +60,18 @@ _BOOSTER_LABEL_SWAPS = [
 # ahora, así que un store_product JP jamás podía llegar a `confirmed`
 # (language_matches siempre False, sin ningún candidato JP con el que
 # coincidir en absoluto -- no es que saliera en 2º lugar, no existía).
-# Empezar por estas dos -- se amplía a Starter Deck/Premium
-# Collection/etc. si aparece demanda JP real en la cola de revisión, no
-# antes (generar de más no rompe nada, un JP que ninguna tienda vende
-# nunca simplemente no tiene store_product que lo confirme; generar de
-# menos deja el mismo hueco de hoy para esa categoría).
-_JP_VARIANT_CATEGORY_SLUGS = {"booster-box", "booster-pack"}
+# Ampliado (2026-08-28, docs/pendientes-motor-matching.md punto 6 --
+# decidido): a todo lo que sea producto sellado con importación japonesa
+# real demostrada en el CSV, no solo Booster Box/Pack -- 16 filas
+# PRB-01/PRB-02 en japonés que hoy no pueden confirmar por falta de esa
+# variante. booster-case incluida a propósito (una vez sembrados sus
+# canónicos, ver seed_from_catalog más abajo) -- un Case es, en esencia,
+# varias Booster Box del mismo lanzamiento, mismo criterio de demanda JP.
+# El resto de categorías de Sellado (starter-deck/illustration-box/
+# devil-fruits-collection/learn-deck) se dejan fuera A PROPÓSITO, sin
+# confirmación de demanda real todavía -- no es descarte, es "sin decidir"
+# (generar de más no rompe nada, pero tampoco hay señal que lo pida hoy).
+_JP_VARIANT_CATEGORY_SLUGS = {"booster-box", "booster-pack", "booster-case", "double-pack", "premium-collection"}
 
 
 def _build_name(name: str, code: str | None, language: str = "EN") -> str:
@@ -86,6 +92,38 @@ def _to_box_variant(name: str) -> str | None:
     for pack_label, box_label in _BOOSTER_LABEL_SWAPS:
         if name.startswith(pack_label):
             return name.replace(pack_label, box_label, 1)
+    return None
+
+
+# Multiplicador de cajas por Case (2026-08-28, docs/pendientes-motor-matching.md
+# punto 3) -- NO es uniforme entre líneas de producto, verificado contra las
+# 34 menciones reales de "case" en multi_tienda_one_piece.csv: los OP-NN/
+# EB-NN vistos (booster-box, vía "Booster Pack:"/"Extra Booster:") son
+# siempre x12; el único PRB-NN visto (premium-collection, vía "Premium
+# Booster:", "(CASE) THE BEST 2 – PRB-02 – x10") es x10. Solo se siembra
+# Case para categorías con evidencia real -- Starter Deck/Double Pack no
+# tienen NINGUNA mención de "Case" en esas 34 filas, no se inventa un
+# número para ellos sin dato.
+_CASE_MULTIPLIER_BY_CATEGORY = {
+    "booster-box": 12,
+    "premium-collection": 10,
+}
+
+_BOOSTER_CASE_LABEL_SWAPS = [
+    ("Booster Pack:", "Booster Box Case:"),
+    ("Extra Booster:", "Extra Booster Box Case:"),
+    ("Premium Booster:", "Premium Booster Box Case:"),
+]
+
+
+def _to_case_variant(name: str, multiplier: int) -> str | None:
+    """None si `name` no es un release tipo booster (no tiene Case). El
+    multiplicador va en el propio nombre canónico (ej. "(x12)") -- ayuda a
+    la similitud de texto contra raw_names reales, que casi siempre lo
+    mencionan ("Booster Box Case (12 Boxes)", "CASE... x10 Booster Box")."""
+    for pack_label, case_label in _BOOSTER_CASE_LABEL_SWAPS:
+        if name.startswith(pack_label):
+            return f"{name.replace(pack_label, case_label, 1)} (x{multiplier})"
     return None
 
 
@@ -146,19 +184,35 @@ def seed_from_catalog(conn, catalog_path: Path = CATALOG_PATH) -> dict:
 
     with conn.cursor() as cur:
         for item in catalog["products"]:
-            name_code_pairs = [(item["name"], item["code"])]
             box_name = _to_box_variant(item["name"])
+            name_code_pairs = [(item["name"], item["code"])]
             if box_name:
                 name_code_pairs.append((box_name, item["code"]))
 
+            box_category_slug = None
             for name, code in name_code_pairs:
                 category_slug = _insert_if_new(cur, name, code, "EN")
+                if name == box_name:
+                    box_category_slug = category_slug
                 # Variante JP (ver _JP_VARIANT_CATEGORY_SLUGS) -- solo si la
                 # versión EN sí tiene categoría reconocida, mismo criterio
                 # que ya usa el resto del script para "vale la pena
                 # sembrarlo".
                 if category_slug in _JP_VARIANT_CATEGORY_SLUGS:
                     _insert_if_new(cur, name, code, "JP")
+
+            # Case (punto 3) -- solo para releases booster con multiplicador
+            # conocido (ver _CASE_MULTIPLIER_BY_CATEGORY). Se deriva del
+            # nombre EN suelto (no del box_name ya transformado), para que
+            # _to_case_variant reconozca el prefijo original ("Booster
+            # Pack:"/"Extra Booster:"/"Premium Booster:").
+            multiplier = _CASE_MULTIPLIER_BY_CATEGORY.get(box_category_slug)
+            if multiplier is not None:
+                case_name = _to_case_variant(item["name"], multiplier)
+                if case_name:
+                    case_category_slug = _insert_if_new(cur, case_name, item["code"], "EN")
+                    if case_category_slug in _JP_VARIANT_CATEGORY_SLUGS:
+                        _insert_if_new(cur, case_name, item["code"], "JP")
 
     conn.commit()
     return {

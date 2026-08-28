@@ -29,12 +29,16 @@ CLASSIFICATION_RULES = [
     # combinados esas cartas colarían como PREMIUM_COLLECTION o similar por
     # el texto de acompañamiento, no por ser lo que de verdad son.
     ("LOTE_CARTAS", ["cgc", "psa", "bgs"]),
-    # ANTES que BOOSTER_BOX a propósito (implementacion-auto-confirmado-setcode.md
-    # 1.3): "Case ... Booster Box" contiene ambas keywords -- si BOOSTER_BOX
-    # fuera primero en la lista, un Case nunca llegaría a clasificarse como
-    # tal (el orden de la lista decide qué regla gana, primer match). Antes
-    # de esto un Case se quedaba en OTROS/needs_review sin salida posible.
-    ("BOOSTER_CASE", ["booster case", "case -", "(case)", "booster box case"]),
+    # BOOSTER_CASE NO vive aquí -- ver _BOOSTER_CASE_RE más abajo. Un
+    # keyword suelto tipo "case -" (probado primero, revisión de
+    # docs/pendientes-motor-matching.md punto 2) colaba accesorios reales
+    # del catálogo oficial ("Limited Card Case -Monkey.D.Luffy-"); "case" a
+    # secas hace falta combinarlo con contexto (código de set o palabra de
+    # caja/booster/sellado) para no perder Case reales SIN "booster"/"box"
+    # pegado a la palabra ("OP-19 Case", "Case sellado OP-16") ni colar
+    # accesorios sin ninguna de las dos señales ("Dice Case", "Card Case")
+    # -- un simple `in` sobre una lista de keywords no puede expresar esa
+    # combinación, se aplica como excepción tras el bucle principal.
     # "ultra deck" añadido tras sembrar el catálogo oficial de Bandai (ST-10
     # "Ultra Deck: The Three Captains", ST-13 "...The Three Brothers"):
     # mismo tipo de producto que un Starter Deck (mazo único en caja), solo
@@ -46,7 +50,12 @@ CLASSIFICATION_RULES = [
     # decide qué regla gana (primer match, ver el bucle de abajo) -- puesto
     # en el orden anterior, "starter deck" ganaba primero y el item acababa
     # buscando candidatos en la categoría equivocada (sin ninguno bueno).
-    ("LEARN_DECK", ["learn together", "learn to play"]),
+    # "aprende a jugar" (2026-08-28, docs/pendientes-motor-matching.md
+    # punto 7): variante en español encontrada en el CSV real ("One Piece |
+    # Caja Aprende a Jugar") -- sin esto, "caja" capturaba el producto como
+    # BOOSTER_BOX antes de llegar a LEARN_DECK (que ya iba primero en la
+    # lista, pero no tenía ningún keyword que matcheara este texto).
+    ("LEARN_DECK", ["learn together", "learn to play", "aprende a jugar"]),
     # "mazo" a secas (2026-08-27, sin ", de inicio"): verificado contra el
     # CSV real que "mazo de inicio" dejaba fuera "Mazo ST-22 Ace &
     # Shirohige" y variantes similares -- la palabra completa "mazo" ya
@@ -93,6 +102,27 @@ _BOOSTER_PACK_PLURAL_RE = re.compile(r"\bsobres\b")
 _DOUBLE_PACK_CODE_RE = re.compile(r"\bDP-?\d{1,2}\b(?!-\d)", re.IGNORECASE)
 _EXTRA_BOOSTER_CODE_RE = re.compile(r"\bEB-?\d{1,2}\b(?!-\d)", re.IGNORECASE)
 
+# 3) "Don!!" suelto + código DP-NN, SIN ninguna palabra que confirme que es
+#    el producto SELLADO completo (2026-08-28, docs/pendientes-motor-matching.md
+#    punto 4) -- caso real confirmado: "Don!! (DP10 Map) - One Piece
+#    Products (DON!!)" es la carta suelta promocional de regalo que viene
+#    DENTRO de un Double Pack Set, vendida por separado, no el pack sellado
+#    en sí -- coincidía con el fallback de arriba (_DOUBLE_PACK_CODE_RE) y
+#    confirmaba contra "Double Pack Set Vol.10 DP-10 EN", un producto con
+#    una unidad de venta y un precio completamente distintos. Mismo
+#    espíritu que LOTE_CARTAS (no existe canónico razonable para una carta
+#    individual) pero sin grado CGC/PSA/BGS -- se clasifica PROMO_CARD, no
+#    LOTE_CARTAS, porque SÍ tiene sentido comparable contra un canónico de
+#    carta promo si algún día se siembra uno (ver docs/pendientes-motor-matching.md
+#    punto 8, promo-card sigue abierta). "set"/"pack"/"caja"/"box"/"sobre"
+#    en el mismo texto confirma que SÍ es el sellado completo (verificado
+#    contra las otras 3 menciones reales de "Don!!" + código DP en el CSV:
+#    "Special DON!! Card Pack DP-06 -- Emperors..." y "...DP-10 -- 2
+#    Booster Packs + Exclusive DON!! Card" SÍ traen "Pack"/"Packs", se
+#    quedan como DOUBLE_PACK sin tocar).
+_DON_CARD_RE = re.compile(r"\bdon!!", re.IGNORECASE)
+_SEALED_PRODUCT_CONTEXT_RE = re.compile(r"\bset\b|\bpack\b|\bcaja\b|\bbox\b|\bsobres?\b", re.IGNORECASE)
+
 # Mapea Classification.product_type (CLASSIFICATION_RULES de arriba) a
 # category.slug (D.2 -- los 13 tipos reales, sembrados por
 # seed-catalog-app-tcg.sql). LOTE_CARTAS y OTROS quedan fuera a propósito,
@@ -127,6 +157,24 @@ NOT_APPLICABLE_PRODUCT_TYPES = {"LOTE_CARTAS", "OTROS"}
 # aquí) es la única forma soportada de ampliar esto -- nunca aflojar el
 # patrón a algo genérico otra vez.
 _SET_CODE_PREFIXES = ("OP", "ST", "DP", "EB", "PRB", "DF")
+
+# BOOSTER_CASE (2026-08-28, docs/pendientes-motor-matching.md punto 2):
+# "case" a secas + contexto de producto sellado en el MISMO texto -- código
+# de set reconocible (reutiliza _SET_CODE_PREFIXES de arriba) o palabra de
+# caja/booster/sellado. Validado fila a fila contra las 34 menciones reales
+# de "case" en multi_tienda_one_piece.csv: todos los Case reales tienen
+# alguna de las dos señales, incluidos los que NO llevan "booster"/"box"
+# pegado a la palabra ("[PREORDER] One Piece Card Game OP-19 Case", "One
+# Piece Tcg CASE SELLADO OP-16", "Case OP02 Paramount War (12 cajas)");
+# ninguno de los accesorios reales del catálogo que sí contienen "case"
+# ("Limited Card Case -Monkey.D.Luffy-", "Official Dice and Dice Case",
+# "Playmat and Card Case Set") tiene ninguna de las dos -- se descartan
+# solos, sin necesitar mirar en qué categoría cayeron antes.
+_BOOSTER_CASE_RE = re.compile(r"\bcase\b", re.IGNORECASE)
+_BOOSTER_CASE_CONTEXT_RE = re.compile(
+    rf"\bbooster\b|\bbox\b|\bboxes\b|\bcaja\b|\bcajas\b|\bsellado\b|\b({'|'.join(_SET_CODE_PREFIXES)})[\s-]?\d{{1,3}}\b",
+    re.IGNORECASE,
+)
 
 # Familias cuyo identificador real es el número de volumen ("Vol.N"), no un
 # código de letras -- verificado en product.set_code (2026-08-27): Playmat
@@ -230,9 +278,25 @@ def classify_product(
     if product_type == "OTROS" and _BOOSTER_PACK_PLURAL_RE.search(type_search_text):
         product_type = "BOOSTER_PACK"
     if product_type == "OTROS" and _DOUBLE_PACK_CODE_RE.search(type_search_text):
-        product_type = "DOUBLE_PACK"
+        # Ver _DON_CARD_RE -- "Don!!" sin contexto de sellado es la carta
+        # suelta de regalo, no el Double Pack Set en sí.
+        if _DON_CARD_RE.search(type_search_text) and not _SEALED_PRODUCT_CONTEXT_RE.search(type_search_text):
+            product_type = "PROMO_CARD"
+        else:
+            product_type = "DOUBLE_PACK"
     if product_type == "OTROS" and _EXTRA_BOOSTER_CODE_RE.search(type_search_text):
         product_type = "BOOSTER_PACK"
+
+    # BOOSTER_CASE gana sobre lo que sea que haya resuelto el bucle de
+    # arriba (típicamente BOOSTER_BOX, por "caja"/"booster box" -- ver
+    # _BOOSTER_CASE_RE) -- salvo LOTE_CARTAS, que sigue siendo prioridad
+    # absoluta (cartas gradeadas individuales nunca son un Case sellado).
+    if (
+        product_type != "LOTE_CARTAS"
+        and _BOOSTER_CASE_RE.search(type_search_text)
+        and _BOOSTER_CASE_CONTEXT_RE.search(type_search_text)
+    ):
+        product_type = "BOOSTER_CASE"
 
     if product_type in _VOLUME_IDENTIFIED_PRODUCT_TYPES:
         # Ver _VOLUME_IDENTIFIED_PRODUCT_TYPES -- Vol.N, no un prefijo de
@@ -249,6 +313,20 @@ def classify_product(
         # texto, incluyendo un OP-set decorativo de acompañamiento).
         dp_match = _DOUBLE_PACK_SET_CODE_RE.search(name)
         set_code = f"DP{int(dp_match.group(1)):02d}" if dp_match else None
+    elif product_type == "DEVIL_FRUITS_COLLECTION":
+        # Código explícito primero (ej. "(DF03)", ya cubierto por el
+        # genérico de abajo -- se repite aquí para no perder ese camino).
+        # Fallback a Vol.N -> DF0N (2026-08-28, docs/pendientes-motor-matching.md
+        # punto 7): caso real "Caja One Piece Devil Fruits Collection Vol.2
+        # - Ingles" no traía ningún código DF explícito, solo el volumen --
+        # verificado que Vol.N y el código DF de esta familia son el mismo
+        # número (ej. "Vol.3 Op-Op Fruit (DF03)" en el propio catálogo).
+        set_match = re.search(rf"\b({'|'.join(_SET_CODE_PREFIXES)})[\s-]?(\d{{1,3}})\b", name)
+        if set_match:
+            set_code = f"{set_match.group(1)}{set_match.group(2)}"
+        else:
+            vol_match = _VOLUME_RE.search(name)
+            set_code = f"DF{int(vol_match.group(1)):02d}" if vol_match else None
     else:
         # [\s-]? (no solo guion) -- verificado en Arte9: su convención de
         # nombres separa letra y número con un espacio ("ST 36"), no un
