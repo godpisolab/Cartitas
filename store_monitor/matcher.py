@@ -73,7 +73,8 @@ def _category_ids(conn) -> dict[str, int]:
         return dict(cur.fetchall())
 
 
-def _best_candidate(cur, category_id: int, raw_name: str, set_code: Optional[str] = None):
+def _best_candidate(cur, category_id: int, raw_name: str, set_code: Optional[str] = None,
+                     language: Optional[str] = None):
     """Top-1 candidato dentro de la categoría -- basta con 1 para decidir el
     match_status; el top-3 completo (C.3) es responsabilidad del futuro
     endpoint de revisión, no de este matcher.
@@ -87,7 +88,22 @@ def _best_candidate(cur, category_id: int, raw_name: str, set_code: Optional[str
     de ESE código manda; si no hay ninguno con ese código (o el raw_name no
     trae código), se degrada a la similitud pura de siempre.
 
-    Segundo desempate por CAJA/SOBRE (is_box_variant, mismo hallazgo):
+    Segundo desempate por IDIOMA (2026-08-28, revisión de una siembra
+    completa contra Postgres real, docs/pendientes-motor-matching.md punto
+    6): dentro de una MISMA categoría+set_code, el canónico EN y el JP
+    comparten casi todo el texto salvo el sufijo -- su similarity() contra
+    un raw_name da a menudo el MISMO score exacto (ej. "One Piece OP13
+    Carrying On His Will" contra "...OP-13 EN" y "...OP-13 JP" empataban en
+    0.469 los dos), y sin este criterio el `ORDER BY` caía al orden físico
+    de la tabla, que devolvía casi siempre el EN aunque `classify_product()`
+    ya hubiera detectado JP -- 61 filas reales se quedaban en needs_review
+    por esto pese a tener el candidato JP correcto ya sembrado. Va ANTES
+    que caja/sobre a propósito: dos idiomas del mismo set_code son
+    productos distintos con precio distinto (la señal más fuerte después
+    de set_code), caja/sobre es una distinción más fina dentro del mismo
+    producto/idioma.
+
+    Tercer desempate por CAJA/SOBRE (is_box_variant, mismo hallazgo):
     dentro de una MISMA categoría+set_code puede convivir la variante caja
     y la de un sobre suelto ("Premium Booster"/"Premium Booster Box", ambas
     PRB-02, misma categoría premium-collection) -- sin esto, similarity()
@@ -121,11 +137,12 @@ def _best_candidate(cur, category_id: int, raw_name: str, set_code: Optional[str
         WHERE category_id = %s
         ORDER BY
             (set_code = %s) IS TRUE DESC,
+            (language = %s) IS TRUE DESC,
             (%s IS NOT NULL AND (name_canonical ILIKE '%%box%%' OR name_canonical ILIKE '%%caja%%') = %s) DESC,
             score DESC
         LIMIT 1
         """,
-        (raw_name, category_id, set_code, is_box, is_box),
+        (raw_name, category_id, set_code, language, is_box, is_box),
     )
     row = cur.fetchone()
     if row is not None and set_code is not None and row[1] == set_code:
@@ -138,11 +155,12 @@ def _best_candidate(cur, category_id: int, raw_name: str, set_code: Optional[str
             FROM product
             WHERE set_code = %s
             ORDER BY
+                (language = %s) IS TRUE DESC,
                 (%s IS NOT NULL AND (name_canonical ILIKE '%%box%%' OR name_canonical ILIKE '%%caja%%') = %s) DESC,
                 score DESC
             LIMIT 1
             """,
-            (raw_name, set_code, is_box, is_box),
+            (raw_name, set_code, language, is_box, is_box),
         )
         cross_category_row = cur.fetchone()
         if cross_category_row is not None:
@@ -164,7 +182,8 @@ def _evaluate(
         # respecto a CLASSIFICATION_RULES. No hay nada contra qué comparar.
         return MatchOutcome("unmatched", None, None)
 
-    candidate, es_fallback = _best_candidate(cur, category_id, raw_name, classification.set_code)
+    candidate, es_fallback = _best_candidate(cur, category_id, raw_name, classification.set_code,
+                                              classification.language)
     if not candidate:
         return MatchOutcome("unmatched", None, None)
 

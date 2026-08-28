@@ -326,6 +326,21 @@ class TestExtraTypeHintDeTags:
         )
         assert result.product_type == "STARTER_DECK"
 
+    def test_tags_con_case_solo_no_dispara_booster_case(self):
+        # Caso real (Golden Pulls, encontrado en una siembra completa
+        # contra Postgres real, 2026-08-28): "Booster Box Display OP11" no
+        # menciona "case" en ningún sitio del nombre -- solo en sus
+        # `raw_tags` de catálogo ("ace, box, card game, case, luffy, one
+        # piece, op11, selladoingles"), un tag reutilizado y ruidoso, no
+        # una descripción real del producto. Antes de este fix, confirmaba
+        # incorrectamente contra un Case de 12 cajas siendo, con toda
+        # probabilidad, 1 caja suelta ("Display").
+        result = classify_product(
+            "One Piece Card Game: Booster Box Display OP11 - A Fist of Divine Speed", "Default Title",
+            "ace, box, card game, case, luffy, one piece, op11, selladoingles",
+        )
+        assert result.product_type == "BOOSTER_BOX"
+
     def test_classify_with_category_tambien_acepta_el_tercer_argumento(self):
         classification, category_slug = classify_with_category(
             "One Piece OP13 Carrying On His Will", "Inglés",

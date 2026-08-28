@@ -269,6 +269,35 @@ class TestCandidatosPriorizanCajaVsSobre:
         assert result.data[0].candidates[0].product_id == sobre_id
 
 
+class TestCandidatosPriorizanIdioma:
+    """docs/pendientes-motor-matching.md punto 6, mismo hallazgo que
+    matcher._best_candidate (store_monitor/): el candidato EN y el JP del
+    mismo set_code comparten casi todo el texto salvo el sufijo de idioma
+    -- similarity() los deja prácticamente empatados, y sin este desempate
+    el candidato #1 que ve quien revisa puede ser el idioma que NO
+    coincide con lo que la tienda declaró explícitamente."""
+
+    def test_japones_prioriza_el_candidato_jp_mismo_set_code(self, session):
+        category_id = seed_category(session, slug="booster-box")
+        en_id, _ = seed_product(
+            session, category_id=category_id,
+            name_canonical="Booster Box: Adventure on Kami's Island OP-15 EN", set_code="OP15", language="EN",
+        )
+        jp_id, _ = seed_product(
+            session, category_id=category_id,
+            name_canonical="Booster Box: Adventure on Kami's Island OP-15 JP", set_code="OP15", language="JP",
+        )
+        # Caso real (2026-08-28): así lo lista una tienda real -- sin el
+        # desempate por idioma, el candidato #1 podía salir en EN pese a
+        # que el propio raw_name dice "Japones" explícitamente.
+        seed_store_product(session, raw_name="Caja One Piece Adventure on Kami's Island OP15 - Japones")
+
+        result = matches_service.list_matches(session, MatchFilters())
+
+        assert result.data[0].candidates[0].product_id == jp_id
+        assert result.data[0].candidates[0].product_id != en_id
+
+
 class TestCandidatosUsanRawTags:
     """2026-08-27: el panel también usa raw_tags (Shopify), no solo el
     matcher automático -- verificado en vivo contra Pokemillon real que su

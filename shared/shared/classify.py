@@ -268,6 +268,12 @@ def classify_product(
         f"{name_lower} {variant_title.lower() if variant_title else ''} "
         f"{extra_type_hint.lower() if extra_type_hint else ''}"
     )
+    # Solo name+variant, SIN extra_type_hint (raw_tags) -- ver _BOOSTER_CASE_RE
+    # más abajo: las tags de un comercio son metadato de catálogo mucho más
+    # ruidoso que el propio título del producto (reutilizadas entre productos
+    # sin relación real), no deben poder disparar por sí solas un tipo tan
+    # consecuente en precio como BOOSTER_CASE.
+    name_variant_text = f"{name_lower} {variant_title.lower() if variant_title else ''}"
 
     product_type = "OTROS"
     for tipo, keywords in CLASSIFICATION_RULES:
@@ -291,10 +297,17 @@ def classify_product(
     # arriba (típicamente BOOSTER_BOX, por "caja"/"booster box" -- ver
     # _BOOSTER_CASE_RE) -- salvo LOTE_CARTAS, que sigue siendo prioridad
     # absoluta (cartas gradeadas individuales nunca son un Case sellado).
+    # Sobre name_variant_text, NO type_search_text (2026-08-28, revisión de
+    # una siembra completa contra Postgres real): "Booster Box Display OP11"
+    # confirmó como Case solo porque la tienda (Golden Pulls) tenía "case"
+    # en sus `raw_tags` -- un tag reutilizado de catálogo, no el producto en
+    # sí (probablemente 1 caja suelta, no un Case de 12). Las tags SÍ siguen
+    # contribuyendo al resto de tipos (product_type "normal"), solo se
+    # excluyen para esta señal concreta por lo caro que sale confirmarla mal.
     if (
         product_type != "LOTE_CARTAS"
-        and _BOOSTER_CASE_RE.search(type_search_text)
-        and _BOOSTER_CASE_CONTEXT_RE.search(type_search_text)
+        and _BOOSTER_CASE_RE.search(name_variant_text)
+        and _BOOSTER_CASE_CONTEXT_RE.search(name_variant_text)
     ):
         product_type = "BOOSTER_CASE"
 

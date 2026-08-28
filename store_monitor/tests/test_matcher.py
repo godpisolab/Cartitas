@@ -27,14 +27,15 @@ def make_classification(product_type="BOOSTER_BOX", set_code="OP11", language="E
 
 
 def stub_candidate(monkeypatch, product_id=1, set_code="OP11", language="EN", score=0.75, es_fallback=False):
-    def _fake_best_candidate(cur, category_id, raw_name, set_code=None):
-        # El parámetro `set_code` de aquí es el BUSCADO (lo que _evaluate
-        # le pasa) -- se ignora a propósito, el stub siempre devuelve el
+    def _fake_best_candidate(cur, category_id, raw_name, set_code=None, language=None):
+        # set_code/language de aquí son los BUSCADOS (lo que _evaluate le
+        # pasa) -- se ignoran a propósito, el stub siempre devuelve el
         # candidato fijo configurado arriba, sea cual sea la búsqueda.
-        candidate = (product_id, candidate_set_code, language, score) if score is not None else None
+        candidate = (product_id, candidate_set_code, candidate_language, score) if score is not None else None
         return candidate, es_fallback
 
     candidate_set_code = set_code
+    candidate_language = language
     monkeypatch.setattr(matcher, "_best_candidate", _fake_best_candidate)
 
 
@@ -393,6 +394,44 @@ class TestBestCandidatePrioridadDeSetCode:
 
         assert candidate is None
         assert es_fallback is False
+
+    def test_idioma_desempata_cuando_en_y_jp_empatan_en_similitud(self, db_conn):
+        # docs/pendientes-motor-matching.md punto 6 -- caso real encontrado
+        # en una siembra completa contra Postgres real: "One Piece OP13
+        # Carrying On His Will" daba EXACTAMENTE el mismo score de
+        # similarity() contra el canónico EN y el JP (solo difieren en el
+        # sufijo) -- sin el idioma como desempate, ORDER BY caía al orden
+        # físico de la tabla y devolvía casi siempre el EN, aunque
+        # classify_product() ya hubiera detectado JP. 61 filas reales se
+        # quedaban en needs_review por esto.
+        category_id = seed_category(db_conn, slug="booster-box")
+        en_id = seed_canonical(db_conn, category_id, "Booster Box: Carrying On His Will OP-13 EN", "OP13", "EN")
+        jp_id = seed_canonical(db_conn, category_id, "Booster Box: Carrying On His Will OP-13 JP", "OP13", "JP")
+
+        with db_conn.cursor() as cur:
+            candidato_en, _ = matcher._best_candidate(
+                cur, category_id, "One Piece OP13 Carrying On His Will", set_code="OP13", language="EN",
+            )
+            candidato_jp, _ = matcher._best_candidate(
+                cur, category_id, "One Piece OP13 Carrying On His Will", set_code="OP13", language="JP",
+            )
+
+        assert candidato_en[0] == en_id
+        assert candidato_jp[0] == jp_id
+
+    def test_sin_idioma_pasado_no_desempata_por_ese_motivo(self, db_conn):
+        # Degradación segura: sin `language` (None), el criterio nuevo no
+        # discrimina nada -- mismo comportamiento que antes de este cambio.
+        category_id = seed_category(db_conn, slug="booster-box")
+        seed_canonical(db_conn, category_id, "Booster Box: Carrying On His Will OP-13 EN", "OP13", "EN")
+        seed_canonical(db_conn, category_id, "Booster Box: Carrying On His Will OP-13 JP", "OP13", "JP")
+
+        with db_conn.cursor() as cur:
+            candidate, _ = matcher._best_candidate(
+                cur, category_id, "One Piece OP13 Carrying On His Will", set_code="OP13",
+            )
+
+        assert candidate is not None  # no revienta sin language, sigue devolviendo alguno de los dos
 
     def test_candidato_por_fallback_cross_categoria_se_marca_como_tal(self, db_conn):
         # implementacion-auto-confirmado-setcode.md 2.4 -- caso real: la

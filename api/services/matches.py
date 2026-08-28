@@ -61,7 +61,8 @@ def _category_id_for_slug(session: Session, slug: str | None) -> int | None:
 
 
 def _top_candidates(
-    session: Session, category_id: int | None, raw_name: str, set_code: str | None = None,
+    session: Session, category_id: int | None, raw_name: str,
+    set_code: str | None = None, language: str | None = None,
 ) -> list[MatchCandidate]:
     """Top-3 por similarity, con el mismo desempate por set_code exacto que
     ya usa store_monitor/matcher.py::_best_candidate() (revisión de la cola
@@ -70,22 +71,28 @@ def _top_candidates(
     edition ST-05", reutilizado como plantilla, gana en similarity() pura a
     la variante concreta correcta) -- cuando el raw_name trae un código
     reconocible, el candidato de ESE código sale primero en la lista que ve
-    quien revisa, no enterrado en el puesto #2 o #3."""
+    quien revisa, no enterrado en el puesto #2 o #3.
+
+    Desempate por IDIOMA EXACTO (2026-08-28, mismo hallazgo que
+    matcher._best_candidate): un set_code trae casi siempre un canónico EN
+    y otro JP con texto casi idéntico, así que similarity() los deja
+    prácticamente empatados -- sin esto, el candidato #1 que ve quien
+    revisa puede ser el idioma que NO coincide con lo que la tienda
+    declaró, y es justo el que _evaluate() usaría para decidir (mismo
+    criterio de orden en los dos sitios, a propósito). Va DESPUÉS de
+    set_code y ANTES de caja/sobre -- mismo razonamiento que en
+    matcher.py: idioma distinto es un producto distinto, caja/sobre es una
+    distinción más fina dentro del mismo producto."""
     if category_id is None:
         return []
     similarity = func.similarity(Product.name_canonical, raw_name)
     order_by = [similarity.desc()]
 
-    # Segundo desempate por CAJA/SOBRE (is_box_variant, mismo hallazgo que
-    # set_code): dentro de una MISMA categoría+set_code puede convivir la
-    # variante caja y la de un sobre suelto ("Premium Booster"/"Premium
-    # Booster Box", ambas PRB-02, misma categoría premium-collection) --
-    # antes de esta señal, similarity() podía preferir la variante
-    # equivocada. Insertado ANTES del desempate de set_code para que se
-    # aplique primero -- si difieren, importa más "es la misma variante"
-    # que "es marginalmente más largo el código coincidente" (en la
-    # práctica no hay conflicto real entre ambos, pero el orden documenta
-    # la prioridad pretendida).
+    # Desempate por CAJA/SOBRE (is_box_variant): dentro de una MISMA
+    # categoría+set_code puede convivir la variante caja y la de un sobre
+    # suelto ("Premium Booster"/"Premium Booster Box", ambas PRB-02, misma
+    # categoría premium-collection) -- antes de esta señal, similarity()
+    # podía preferir la variante equivocada.
     # Solo se comprueba "box" en el lado del candidato (no "caja") --
     # name_canonical está siempre en inglés (verificado: 0 filas con "caja"
     # en el catálogo), a diferencia de raw_name que sí puede venir en
@@ -97,6 +104,13 @@ def _top_candidates(
             else_=0,
         )
         order_by.insert(0, box_match.desc())
+
+    if language:
+        # CASE explícito por el mismo motivo que set_code_match más abajo:
+        # trata NULL/idioma no coincidente como "no cumple", sin colar
+        # candidatos de idioma desconocido por delante de uno correcto.
+        language_match = case((Product.language == language, 1), else_=0)
+        order_by.insert(0, language_match.desc())
 
     if set_code:
         # CASE explícito, no (Product.set_code == set_code).desc() a secas:
@@ -121,10 +135,13 @@ def _top_candidates(
     # cola de revisión muestre el canónico correcto aunque la tienda lo
     # haya clasificado en una categoría distinta a como se sembró.
     if set_code and not any(sc == set_code for _, _, sc, _ in rows):
+        fallback_order_by = [similarity.desc()]
+        if language:
+            fallback_order_by.insert(0, case((Product.language == language, 1), else_=0).desc())
         cross_category_row = session.exec(
             select(Product.id, Product.name_canonical, Product.set_code, similarity.label("score"))
             .where(Product.set_code == set_code)
-            .order_by(similarity.desc())
+            .order_by(*fallback_order_by)
             .limit(1)
         ).first()
         if cross_category_row is not None:
@@ -141,7 +158,7 @@ def _candidates_for(
 ) -> list[MatchCandidate]:
     classification, category_slug = classify_with_category(raw_name, raw_variant, raw_tags)
     category_id = _category_id_for_slug(session, category_slug)
-    return _top_candidates(session, category_id, raw_name, classification.set_code)
+    return _top_candidates(session, category_id, raw_name, classification.set_code, classification.language)
 
 
 def _to_item(store_product: StoreProduct, store: Store, candidates: list[MatchCandidate]) -> MatchItem:

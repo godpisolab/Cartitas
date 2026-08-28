@@ -141,6 +141,35 @@ class TestAdminListMatches:
         assert resp.status_code == 200
         assert 'href="/admin/matches?status=confirmed" class="active"' in resp.text
 
+    def test_con_51_filas_pagina_2_llega_a_la_ultima(self, session, client, admin_credentials):
+        # Hallazgo real (2026-08-28): con 187 needs_review reales, el panel
+        # solo pedía page=1 (limit=50 por defecto) sin exponer ?page= ni
+        # ningún enlace de paginación -- las otras 137 filas eran
+        # invisibles desde el navegador.
+        for i in range(51):
+            seed_store_product(session, store_name=f"Tienda{i}")
+
+        pagina_1 = client.get("/admin/matches", auth=admin_credentials)
+        pagina_2 = client.get("/admin/matches?page=2", auth=admin_credentials)
+
+        assert pagina_1.status_code == 200
+        assert pagina_1.text.count("<tr") - 1 == 50  # -1 por la fila de cabecera <thead><tr>
+        assert "Página 1 de 2" in pagina_1.text
+        assert "/admin/matches?status=needsReview&page=2" in pagina_1.text  # enlace "Siguiente"
+
+        assert pagina_2.status_code == 200
+        assert pagina_2.text.count("<tr") - 1 == 1
+        assert "Página 2 de 2" in pagina_2.text
+        assert "/admin/matches?status=needsReview&page=1" in pagina_2.text  # enlace "Anterior"
+
+    def test_con_menos_de_50_filas_no_muestra_paginacion(self, session, client, admin_credentials):
+        seed_store_product(session)
+
+        resp = client.get("/admin/matches", auth=admin_credentials)
+
+        assert resp.status_code == 200
+        assert "Página" not in resp.text
+
 
 class TestAdminRejectForm:
     def test_fila_pendiente_muestra_formulario_con_select_y_reason(self, session, client, admin_credentials):

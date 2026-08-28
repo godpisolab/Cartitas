@@ -425,15 +425,21 @@ def run_all_stores(stores: list[StoreConfig]) -> tuple[list[Product], list[tuple
             _record_backoff_outcome(config, result)
 
             if result.status == "ok":
+                print(f"[{result.label}] OK: {len(result.products)} productos en {result.elapsed_seconds:.1f}s")
                 all_products.extend(result.products)
             elif result.status == "empty":
                 motivo = result.error or "sin productos (0 filas)"
+                print(f"[{result.label}] VACÍO en {result.elapsed_seconds:.1f}s: {motivo}")
                 failed_stores.append((result.label, result.platform, motivo))
             elif result.status == "timeout":
-                print(f"[{result.label}] TIMEOUT: {result.error}")
+                print(f"[{result.label}] TIMEOUT en {result.elapsed_seconds:.1f}s: {result.error}")
                 failed_stores.append((result.label, result.platform, result.error))
             else:
-                print(f"[{result.label}] ERROR: {result.error}")
+                print(f"[{result.label}] ERROR en {result.elapsed_seconds:.1f}s: {result.error}")
                 failed_stores.append((result.label, result.platform, f"error: {result.error}"))
+
+    total_elapsed = time.time() - now
+    print(f"\n[run_all_stores] {len(runnable_stores)} tiendas intentadas en {total_elapsed:.1f}s de reloj "
+          f"(en paralelo, un hilo por tienda -- STORE_TIMEOUT={STORE_TIMEOUT}s por tienda)")
 
     return all_products, failed_stores

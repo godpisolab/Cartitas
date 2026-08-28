@@ -26,4 +26,16 @@
       {% endfor %}
     </tbody>
   </table>
+  {% set total_pages = ((meta.total - 1) // meta.limit) + 1 if meta.total > 0 else 1 %}
+  {% if total_pages > 1 %}
+    <nav class="pagination">
+      {% if meta.page > 1 %}
+        <a href="/admin/matches?status={{ status }}&page={{ meta.page - 1 }}">&laquo; Anterior</a>
+      {% endif %}
+      <span>Página {{ meta.page }} de {{ total_pages }} ({{ meta.total }} en total)</span>
+      {% if meta.page < total_pages %}
+        <a href="/admin/matches?status={{ status }}&page={{ meta.page + 1 }}">Siguiente &raquo;</a>
+      {% endif %}
+    </nav>
+  {% endif %}
 {% endblock %}

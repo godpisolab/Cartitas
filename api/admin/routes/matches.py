@@ -22,10 +22,18 @@ router = APIRouter()
 def list_matches(
     request: Request,
     status: MatchStatusFilter = Query("needsReview"),
+    page: int = Query(1, ge=1),
     session: Session = Depends(get_session),
 ):
-    page = matches_service.list_matches(session, MatchFilters(status=status))
-    return templates.TemplateResponse(request, "matches/list.html", {"items": page.data, "status": status})
+    # Antes de esto, el panel siempre pedía page=1 (limit=50 por defecto de
+    # MatchFilters) sin exponer ?page= ni pasar meta a la plantilla -- con
+    # más de 50 filas en un estado, el resto era invisible desde el
+    # navegador sin ninguna forma de llegar a ellas (encontrado en vivo con
+    # 187 needs_review reales, 2026-08-28).
+    result = matches_service.list_matches(session, MatchFilters(status=status, page=page))
+    return templates.TemplateResponse(
+        request, "matches/list.html", {"items": result.data, "status": status, "meta": result.meta},
+    )
 
 
 @router.get("/missing-candidates")
