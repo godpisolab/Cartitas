@@ -276,6 +276,8 @@ python3 seed_official_catalog.py
 
 Cada lanzamiento tipo booster se siembra dos veces (Booster Box + Booster Pack) porque las tiendas los venden como SKUs distintos con precios muy distintos. Los productos sin categoría en la taxonomía de 14 tipos (fundas, binders, cajas de almacenaje sueltas, sets de aniversario...) se omiten y se listan al final de la ejecución.
 
+**Hecho (2026-08-28, `docs/pendientes-motor-matching.md`):** cada release booster con multiplicador conocido se siembra TAMBIÉN como `booster-case` (EN+JP) -- `x12` para `booster-box`, `x10` para `premium-collection` (verificado real, no uniforme; `starter-deck`/`double-pack` se dejan sin Case a falta de evidencia). La variante JP (antes solo `booster-box`/`booster-pack`) se amplió a `booster-case`/`double-pack`/`premium-collection`. Además, `BOOSTER_CASE` en `classify_product()` dejó de ser un keyword suelto (colaba accesorios reales como "Limited Card Case -Monkey.D.Luffy-") y pasó a exigir "case" + contexto (código de set o palabra de caja/booster/sellado) en el mismo texto -- validado fila a fila contra las 34 menciones reales de "case" del CSV.
+
 Umbrales (aprobados 2026-08-26 como valores de partida, calibrados con datos reales el 2026-08-27 -- ver detalle completo en `docs/cambios-necesarios-scraper.md` sección C.2):
 
 | Condición | Resultado |

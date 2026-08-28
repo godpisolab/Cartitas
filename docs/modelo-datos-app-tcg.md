@@ -50,6 +50,8 @@ Auto-matching por reglas (set_code + category + language extraídos del nombre e
 - `match_confidence` (score del matcher automático, nullable)
 - `suggested_product_id` (la sugerencia del matcher, pendiente de confirmar) — se mantiene separado de `product_id` para que un `product_id` poblado siempre signifique "confirmado", nunca "sugerido sin revisar"
 
+**Corregido (2026-08-27, `docs/cambios-necesarios-scraper.md`):** `suggested_product_id` se retiró del esquema — `GET /matches` (antes `/matches/pending`) devuelve un top-3 de candidatos con su score cada uno, calculado en caliente (`ORDER BY similarity(name_canonical, raw_name) DESC LIMIT 3`), en vez de guardar una única sugerencia que quedaría obsoleta en cuanto se siembre un canónico nuevo más parecido. `match_confidence` se conserva, pero pasa a significar "score del match ya confirmado", no el de una sugerencia pendiente.
+
 ### 2. Alcance del restock: cualquier tienda en v1, tienda concreta preparado para el futuro
 `restock_subscription.store_id` es nullable desde el principio: `NULL` = "avísame si vuelve a stock en cualquier tienda" (comportamiento único de v1). Queda el campo listo para cuando quieras ofrecer "avísame solo si vuelve en la tienda X", sin tener que migrar el esquema más adelante.
 
