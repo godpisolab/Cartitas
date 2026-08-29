@@ -155,6 +155,9 @@ class TestSeedFromCatalog:
         # starter-deck no está en _CASE_MULTIPLIER_BY_CATEGORY a propósito
         # -- ninguna mención real de "Starter Deck Case" en el CSV, no se
         # inventa un multiplicador sin dato (ver docstring del punto 3).
+        # SÍ genera variante JP desde 2026-08-29 (ver test de abajo) --
+        # ambas cosas son independientes, esto solo comprueba que ningún
+        # "... Case" se cuela entre los insertados.
         _seed_game_and_categories(db_conn)
         with db_conn.cursor() as cur:
             cur.execute("INSERT INTO category (name, slug) VALUES ('Booster Case', 'booster-case')")
@@ -164,19 +167,23 @@ class TestSeedFromCatalog:
         ])
         result = soc.seed_from_catalog(db_conn, catalog_path)
 
-        assert len(result["inserted"]) == 1
-        assert result["inserted"] == ["Starter Deck: Straw Hat Crew ST-01 EN"]
+        assert not any("Case" in name for name in result["inserted"])
 
-    def test_starter_deck_se_siembra_una_sola_vez_sin_variante_jp(self, db_conn, tmp_path):
-        # starter-deck NO está en _JP_VARIANT_CATEGORY_SLUGS todavía --
-        # solo EN, mismo comportamiento que antes de esta ronda.
+    def test_starter_deck_ahora_genera_variante_jp(self, db_conn, tmp_path):
+        # 2026-08-29, auditoría needs_review: starter-deck se añadió a
+        # _JP_VARIANT_CATEGORY_SLUGS -- señal de demanda real confirmada
+        # (Pokemillon vendía 7+ Starter Decks japoneses sin ningún
+        # candidato JP posible). Antes de esto solo se sembraba EN.
         _seed_game_and_categories(db_conn)
         catalog_path = _write_catalog(tmp_path, [
             {"name": "Starter Deck: Straw Hat Crew", "code": "ST-01"},
         ])
         result = soc.seed_from_catalog(db_conn, catalog_path)
-        assert len(result["inserted"]) == 1
-        assert result["inserted"] == ["Starter Deck: Straw Hat Crew ST-01 EN"]
+        assert len(result["inserted"]) == 2
+        assert result["inserted"] == [
+            "Starter Deck: Straw Hat Crew ST-01 EN",
+            "Starter Deck: Straw Hat Crew ST-01 JP",
+        ]
 
     def test_premium_collection_y_double_pack_ahora_generan_variante_jp(self, db_conn, tmp_path):
         # docs/pendientes-motor-matching.md punto 6 (decidido, 2026-08-28):
@@ -224,10 +231,12 @@ class TestSeedFromCatalog:
         result2 = soc.seed_from_catalog(db_conn, catalog_path)
 
         assert result2["inserted"] == []
-        assert len(result2["already_existed"]) == 1
+        # 2, no 1 -- starter-deck genera EN + JP desde 2026-08-29 (ver
+        # test_starter_deck_ahora_genera_variante_jp).
+        assert len(result2["already_existed"]) == 2
         with db_conn.cursor() as cur:
             cur.execute("SELECT count(*) FROM product")
-            assert cur.fetchone()[0] == 1  # no se duplicó
+            assert cur.fetchone()[0] == 2  # no se duplicó
 
     def test_idempotente_tambien_para_la_variante_jp(self, db_conn, tmp_path):
         _seed_game_and_categories(db_conn)

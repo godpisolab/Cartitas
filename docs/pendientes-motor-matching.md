@@ -52,11 +52,13 @@ Confirmado por ti: `DP-08` se lanzó junto a "Legacy of the Master" (OP-12) — 
 
 Decisión: no limitar `_JP_VARIANT_CATEGORY_SLUGS` a `booster-box`/`booster-pack` — ampliar a **todo lo que sea producto sellado con importación japonesa real**: `booster-pack`, `booster-box`, `booster-case` (una vez sembrado, punto 3), `double-pack`, `premium-collection`. Motivado por la demanda ya demostrada en el CSV (16 filas `PRB-01`/`PRB-02` en japonés que hoy no pueden confirmar por falta de esa variante).
 
-**Sin decidir todavía, no asumido aquí:** si el resto de categorías de `Sellado` (`starter-deck`, `illustration-box`, `devil-fruits-collection`, `learn-deck`) entran también en la ampliación o se quedan fuera — quedan fuera de la lista explícita de arriba a falta de confirmación, no por descarte. Playmat/dice-accessory/promo-card/mystery-pack se asumen fuera por naturaleza (accesorios o promocionales, no producto sellado que se importe en volumen).
+**Decidido (2026-08-29):** `starter-deck` entra también en la ampliación — señal de demanda real confirmada en la auditoría de `needs_review` (Pokemillon vendía 7+ Starter Decks japoneses distintos, ST-08/ST-09/ST-11/ST-14/ST-33/ST-34/ST-36, sin ningún candidato JP posible). `illustration-box`/`devil-fruits-collection`/`learn-deck` siguen fuera de la lista explícita, a falta de confirmación, no por descarte. Playmat/dice-accessory/promo-card/mystery-pack se asumen fuera por naturaleza (accesorios o promocionales, no producto sellado que se importe en volumen).
 
 Además, quedan **29 filas residuales** dentro de `booster-box`/`booster-pack` con idioma no coincidente **pese a que esas categorías ya tienen JP sembrado** — causa todavía sin investigar, podría no ser un problema de dato faltante sino un fallo puntual del scoring al elegir entre EN/JP cuando ambas variantes ya existen (ver duplicados de `set_code` en `implementacion-auto-confirmado-setcode.md`).
 
 **Hecho (2026-08-28), la parte decidida:** `_JP_VARIANT_CATEGORY_SLUGS` en `seed_official_catalog.py` ampliada a `{"booster-box", "booster-pack", "booster-case", "double-pack", "premium-collection"}`. `starter-deck`/`illustration-box`/`devil-fruits-collection`/`learn-deck` siguen fuera, tal como queda "sin decidir" arriba -- no se tocaron. Las 29 filas residuales y la investigación del fallo de scoring EN/JP siguen sin investigar, fuera de esta ronda.
+
+**Hecho (2026-08-29):** `starter-deck` añadida a `_JP_VARIANT_CATEGORY_SLUGS` (ver decisión más arriba) — 40 canónicos JP nuevos sembrados sobre `cartitas` real (uno por cada Starter Deck EN existente). `illustration-box`/`devil-fruits-collection`/`learn-deck` siguen sin decidir.
 
 ### 7. Ambigüedad de texto genuina (233→215 filas del análisis, ~14% del total no confirmado) — investigado, no es un problema de categorías
 
@@ -88,5 +90,57 @@ Es el mismo fenómeno de fondo que las categorías vacías del punto 8 (`promo-c
 ### 9. Bundle "Pack 5 Sobres" — decidido, mismo saco que `mystery-pack`, sin categoría propia
 Se queda con la guarda de `cantidad_es_ambigua()` (siempre en `needs_review`) de forma permanente, no como solución provisional — mismo criterio que `mystery-pack` (punto 8): no se crea categoría propia para esto. No reconsiderar aunque aparezca más volumen en el scrape real, salvo que cambie explícitamente esta decisión.
 
-### 10. Cantidades ambiguas sin resolver: `"x12"`/`"x6"`
-Mismo tratamiento que el punto 9 — quedan en `needs_review` por precaución, sin saber si son de verdad una unidad distinta o solo una tienda describiendo mal una caja normal. No investigado más a fondo, bajo volumen (4 casos).
+### 10. Cantidades ambiguas sin resolver: `"x12"`/`"x6"` — `x12` resuelto, `x6` sigue abierto
+
+**Hecho (2026-08-29):** `"x12"` en un `BOOSTER_BOX` deja de ser solo sospechoso -- 12 es EXACTO el multiplicador real de Case para esa categoría (`_CASE_MULTIPLIER_BY_TYPE`, mismo dato que ya usaba `seed_official_catalog.py` para sembrar los canónicos Case). Verificado contra 3 casos reales (Master of Games, OP-14/OP-16/OP-17): los 3 clasifican ahora `BOOSTER_CASE` y auto-confirman contra el canónico ya sembrado, sin necesitar la palabra "case" en el texto. Sobre `name_variant_text`, no tags -- mismo criterio que el resto de señales caras de confirmar mal (Case cuesta ~12x una caja normal). Aplicado también a `PREMIUM_COLLECTION` (`x10`), sin caso real observado todavía que lo confirme.
+
+**Sigue abierto:** `"x6"` en `Starter Deck EX Gear5 [ST21]` (Master of Games) -- `starter-deck` no tiene multiplicador de Case conocido (`_CASE_MULTIPLIER_BY_CATEGORY`/`_CASE_MULTIPLIER_BY_TYPE` no lo incluyen, cero evidencia real de "Starter Deck Case" todavía) y no existe ningún canónico Case de Starter Deck sembrado -- aunque se detectara, no habría contra qué confirmar. Queda en `needs_review` por precaución, igual que antes.
+
+---
+
+## 2026-08-29 — Auditoría completa de `needs_review` (182 → 49 filas)
+
+Sesión de auditoría manual fila a fila contra un CSV exportado de Postgres real (`store_product` en `needs_review`), reproduciendo la lógica exacta de `_evaluate()`/`_best_candidate()` para explicar el motivo concreto de cada una. Ver también los puntos 6 y 10 de arriba (actualizados en esta misma ronda) y `tests/README.md` sección "Bugs reales encontrados" para los dos bugs de composición (regex sin `IGNORECASE`, `&` en las claves del lookup).
+
+### 11. Lookups nuevos: personaje→código y título de release→código
+
+Dos tablas whitelist nuevas en `shared/classify.py`, mismo espíritu que `_SET_CODE_PREFIXES` (lista blanca explícita, nunca "cualquier texto que suene a"):
+
+- **`_STARTER_DECK_CHARACTER_CODES`** (31 personajes → ST-code): cubre tiendas que nombran el Starter Deck solo por el personaje protagonista, sin color ni código (inGenio BCN, Gameria). Los 4 personajes que Bandai reutilizó en Starter Decks de color distinto (Monkey D. Luffy ×4, Charlotte Katakuri ×2, Yamato ×2, Uta ×2) se dejan FUERA a propósito — sin la palabra de color no hay señal para desambiguar, mejor `needs_review` que un match falso silencioso. Antes de este fix, el candidato sugerido por similitud pura para varios de ellos era directamente incorrecto (ej. "Shanks"/"Buggy"/"Sabo" caían los tres en `ST05`, un Starter Deck genérico sin relación).
+- **`_PLAYMAT_CHARACTER_CODES`** (5 personajes → pseudo-código inventado, ej. `SHANKS`/`NAMI`/`ACE`): a diferencia de Starter Deck, Bandai NUNCA asigna código real a los playmats con personaje — son identificadores inventados solo para poder desambiguar dentro de la categoría vía el mismo mecanismo `set_code`. Verificado contra los 18 playmats reales sembrados: ningún personaje se repite, así que ninguna entrada queda ambigua (a diferencia de Starter Deck).
+- **`_RELEASE_TITLE_CODES`** (27 títulos oficiales de Bandai → código, ej. "Romance Dawn"→OP01, "The Best vol.2"→PRB02): cubre `BOOSTER_BOX`/`BOOSTER_PACK`/`PREMIUM_COLLECTION` nombrados por su título temático sin código (inGenio BCN). Bandai no repite título de release entre lanzamientos, así que no hay ambigüedad como sí la hay en Starter Deck.
+- **`_normalize_for_lookup()`**: decodifica entidades HTML (`&#8217;`, `&amp;`, `&#038;` — vistas crudas, sin decodificar, en varios `raw_name` reales) antes de comparar contra las tablas de arriba.
+
+Impacto medido: inGenio BCN pasó de 36 a 9 filas en `needs_review` (de las cuales 5 son personajes ambiguos dejados fuera a propósito).
+
+### 12. `Vol.N -> VOLnn` para `PREMIUM_COLLECTION` — backfill de canónicos ya sembrados incluido
+
+`PREMIUM_COLLECTION` no estaba en `_VOLUME_IDENTIFIED_PRODUCT_TYPES` (solo `ILLUSTRATION_BOX`/`PLAYMAT`) pese a que el catálogo oficial de Bandai NUNCA asigna código real a las ediciones "Premium Card Collection -X-" (`data/one_piece_tcg_products.json`: `"code": null` en las 17 variantes) — el "Vol.N" del propio nombre es la única señal real posible. Caso real: Mulligan vendía "Premium Card Collection Vol 3"/"Vol 4" sin ningún candidato con código al que compararse.
+
+Como los canónicos YA sembrados también tenían `set_code=NULL` (nunca se les asignó al sembrarlos, mismo motivo), hizo falta un backfill puntual sobre `cartitas` real además del fix de extracción — 18 productos actualizados. **Colisión conocida y aceptada:** `VOL02` lo comparten 3 sub-líneas distintas ("Best Selection Vol.2", "Live Action Edition vol.2 Baroque Works", "Live Action Edition vol.2 Straw Hat Crew") — `_best_candidate` desempata por `similarity()` DESC como último criterio dentro del mismo `set_code`, así que un texto que sí mencione la sub-línea sigue resolviendo bien; uno genérico ("Premium Card Collection Vol 2" a secas) podría desambiguar mal. Sin caso real observado todavía, no se ha resuelto más a fondo.
+
+### 13. Código explícito (`PRB-NN`/`DP-NN`) debe pisar el keyword genérico de tipo, no solo cuando `product_type` sigue en `OTROS`
+
+Dos bugs gemelos, mismo patrón de fondo: `_EXTRA_BOOSTER_CODE_RE`/`_DOUBLE_PACK_CODE_RE`/etc. solo ascendían el `product_type` cuando este seguía en `OTROS` — si un keyword genérico (`"caja"`/`"sobre"`, sea del propio `name` o de una `raw_tags` reciclada, ver punto 7 de `tests/README.md`) ya lo había resuelto (mal) a `BOOSTER_BOX`/`BOOSTER_PACK` antes, el código explícito nunca tenía ocasión de corregirlo.
+
+- **PRB-NN** (Saruman Games, `"Premium2 – PRB-02 sobre"`): "Premium2" no coincide con ningún keyword de `PREMIUM_COLLECTION`, así que "sobre" ganaba y el producto quedaba `BOOSTER_PACK` pese al código `PRB-02` explícito.
+- **DP-NN** (Pokemillon, `"DP09 The Azure Sea's Seven OP14"`/`"DP-08 Legacy of the Master OP-12"`): `raw_tags` con "Sobre"/"Caja" (metadato de catálogo reciclado, no descripción real del producto) resolvían `BOOSTER_PACK`/`BOOSTER_BOX` antes de que `_DOUBLE_PACK_CODE_RE` tuviera ocasión de ascender a `DOUBLE_PACK`.
+
+Arreglo: ambos códigos ahora pisan `BOOSTER_BOX`/`BOOSTER_PACK` ya resueltos, no solo `OTROS` — PRB es un prefijo reservado en exclusiva a `premium-collection`, DP a `double-pack` (`_SET_CODE_PREFIXES`), así que su presencia es señal más fuerte que un keyword genérico suelto. Impacto: 10 filas reales (3 directas + 7 de arrastre, otros DP-NN con el mismo patrón).
+
+### 14. Categoría con un único SKU posible en todo el catálogo — auto-confirma sin depender de similitud
+
+`LEARN_DECK`/`DICE_ACCESSORY` tienen exactamente 1 producto canónico sembrado cada una (`"Learn Together Deck Set EN"`, `"Official Dice and Dice Case Set EN"`) — ningún otro candidato posible existe en esas categorías, así que el umbral de similitud/`set_code` no aporta nada, solo bloqueaba un match que ya era inequívoco por construcción. `matcher._single_sku_categories()` (recalculado en cada `run_matching()`, no una lista fija a mano) identifica estas categorías y `_evaluate()` confirma directo cuando `es_fallback=False` y el idioma no contradice explícitamente al único candidato. Impacto: 12 filas (10 `LEARN_DECK` + 2 `DICE_ACCESSORY`).
+
+### 15. `PrestaShopScraper` generalizado con el fix de nombres truncados de WooCommerce
+
+Distrito Zero (PrestaShop, tema IQIT) truncaba el título en el listado exactamente igual que Arte9 (WooCommerce/Madara) — 19 de 20 `raw_name` en `needs_review` de esa tienda terminaban en `"..."` literal. El mecanismo (`_looks_truncated`/visitar la ficha individual para el `h1` completo) ya existía en `scrapers/woocommerce.py`, documentado como "por patrón, no por tienda", pero nunca se había enganchado en `scrapers/prestashop.py`. Generalizado (reutilizando `_parse_product_detail`'s selector `h1`) y re-scrapeado Distrito Zero en vivo: 0 nombres truncados de 66 productos (antes 20). Impacto: 14 filas.
+
+### 16. Huecos de catálogo con demanda real de 2+ tiendas — pendiente de decisión, no de código
+
+Encontrados al llegar al fondo de la cola (49 filas): dos productos que NINGUNA tienda podría matchear porque no están en `data/one_piece_tcg_products.json` en absoluto, con demanda confirmada por más de una tienda cada uno —
+
+- **"Premium Card Collection - Uta"**: la venden Pokemillon Y FreakCorp.
+- **"One Piece Day 2024/2025 Premium Card Collection"**: la venden Pokemillon Y Golden Pulls.
+
+Exactamente la señal que `matcher.find_missing_canonical_candidates()` está diseñada para detectar. Pendiente: ejecutarla contra la BBDD actual y decidir si se siembran a mano (mismo criterio que el punto 8, `promo-card`). Sin tocar en esta ronda.

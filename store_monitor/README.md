@@ -1,6 +1,6 @@
 # Store Monitor
 
-Scraper unificado de precios y stock de **One Piece Card Game** en tiendas online españolas. Recorre 56 tiendas repartidas en 6 plataformas distintas, normaliza todos los productos a un esquema común, y genera un CSV comparable tienda-por-tienda (precio mínimo por set, disponibilidad, tipo de producto...).
+Scraper unificado de precios y stock de **One Piece Card Game** en tiendas online españolas. Recorre 55 tiendas repartidas en 6 plataformas distintas, normaliza todos los productos a un esquema común, y genera un CSV comparable tienda-por-tienda (precio mínimo por set, disponibilidad, tipo de producto...).
 
 ## Índice
 
@@ -43,13 +43,13 @@ python base_script.py
 ```
 
 Esto:
-1. Scrapea las 56 tiendas de `STORES` **en paralelo** (un hilo por tienda).
+1. Scrapea las 55 tiendas de `STORES` **en paralelo** (un hilo por tienda).
 2. Escribe `multi_tienda_one_piece.csv` con todos los productos encontrados.
 3. Si alguna tienda falló, escribe `tiendas_fallidas.csv` con el motivo.
 4. Imprime un resumen por consola: filas por tienda, totales por tipo de producto, totales por disponibilidad, y el precio mínimo de cada set (OP-XX) tienda por tienda.
 5. Si existe `price_history.py` (módulo opcional, no incluido todavía), guarda un snapshot en SQLite para histórico de precios. Si no existe, el script sigue funcionando igual — solo se pierde ese histórico.
 
-Tarda entre 2 y 3 minutos las 56 tiendas (las que usan `Platform.ODOO` o `Platform.GENERIC_JSONLD` son las más lentas: visitan cada producto individualmente, no solo el listado).
+Tarda entre 2 y 3 minutos las 55 tiendas (las que usan `Platform.ODOO` o `Platform.GENERIC_JSONLD` son las más lentas: visitan cada producto individualmente, no solo el listado).
 
 ## Arquitectura
 
@@ -64,7 +64,7 @@ shared/(domain.py, classify.py) → config.py → persistence.py → store_state
 ```
 shared/domain.py  -- Platform (enum), StoreConfig, Product, Classification, RefreshedVariant,
                       RefreshOutcome: dataclasses puros, cero imports internos del proyecto.
-config.py         -- STORES (las 56 tiendas configuradas), IDENTIFIABLE_USER_AGENT y demás
+config.py         -- STORES (las 55 tiendas configuradas -- Arte9 excluida a petición expresa, ver comentario en config.py), IDENTIFIABLE_USER_AGENT y demás
                       constantes de identidad HTTP (A.1), OUTPUT_CSV/FAILED_STORES_CSV.
 shared/classify.py -- classify_product() / _detect_language() (deduce tipo/set/idioma del
                       nombre), parse_price_text() / parse_price_minor_unit(). Lógica pura,
@@ -251,7 +251,7 @@ Dos escrituras, cada ejecución de `main()`:
 **Bug real corregido (2026-08-26)**: el `UNIQUE` de `store_product` era solo `(store_id, store_url)` — varias variantes de un mismo producto Shopify (idioma, sobre/caja...) comparten `store_url`, así que la segunda variante pisaba a la primera en vez de convivir como fila propia (verificado en Pokemillon: 130 de 430 productos, un 30%, colapsaban). Ahora es `(store_id, store_url, raw_variant)` — si aplicas el esquema sobre una BBDD ya creada con el `UNIQUE` viejo, hace falta el `ALTER TABLE` (ver `schema-postgresql-app-tcg.sql`, no se migra solo).
 
 1. **`sync_stores()`** — `STORES` (código) → tabla `store`, `UPSERT` por `website_url`. Solo toca los campos ESTÁTICOS que existen en `StoreConfig` (`name`, `platform`); los dinámicos (`crawl_delay_seconds`, `backoff_until`, `last_scraped_at`, `robots_checked_at`) viven solo en la BBDD y esta sincronización nunca los pisa.
-2. **`persist_scrape_results()`** — los `Product` ya scrapeados → `store_product` + `price_history` + `restock_event`, en **una transacción por tienda** (no por producto, ni una única transacción gigante para las 56): un lote corrupto de una tienda hace `ROLLBACK` solo, sin perder las demás. Cada lote:
+2. **`persist_scrape_results()`** — los `Product` ya scrapeados → `store_product` + `price_history` + `restock_event`, en **una transacción por tienda** (no por producto, ni una única transacción gigante para las 55): un lote corrupto de una tienda hace `ROLLBACK` solo, sin perder las demás. Cada lote:
    - Lee el `stock_status` **anterior** de `store_product` antes de sobrescribirlo, para detectar la transición `agotado → disponible` (restock). Un `store_url` sin fila previa nunca cuenta como restock (alta nueva, no restock), y tampoco cuenta si no hay `product_id` confirmado todavía (ver matching, abajo).
    - Trunca defensivamente `raw_name`/`raw_variant`/`store_sku` a los límites del esquema si el HTML de una tienda concreta cuela texto anómalo (visto en Arte9, mismo tema Madara de la limitación de más abajo) — con aviso en logs, en vez de que ese único producto tire abajo la transacción de toda la tienda.
    - Normaliza `stock_status` a los valores exactos del enum (minúscula) — el scraper interno sigue en mayúsculas, la traducción vive solo aquí.
@@ -301,6 +301,10 @@ Idioma no detectado ya no es ambigüedad (corregido 2026-08-27): `classify_produ
 
 **Limitación real encontrada probando esto, resuelta (2026-08-27)**: Arte9 trunca los nombres en la vista de categoría (`"... . . ."`) antes de llegar al código de set al final del título real — `classify_product()` casi nunca podía extraer `main_set` de esos nombres, así que todo lo que no caía en `not_applicable` quedaba `unmatched`. `WooCommerceScraper._scrape_via_html()` (`scrapers/woocommerce.py`) ahora detecta por patrón (`_looks_truncated()`, no atado a ninguna tienda) cuando un nombre del listado viene recortado y visita la ficha individual del producto para recuperar el título completo vía `.product_title` — la clase que añade el CORE de WooCommerce en la plantilla de producto individual, no depende del tema (a diferencia de `.woocommerce-loop-product__title` del listado, que sí varía y es la que falla en el tema Madara de Arte9). Cualquier otra tienda WooCommerce con el mismo problema de tema se beneficia igual, sin tocar este código.
 
+**Generalizado a PrestaShop (2026-08-29)**: mismo síntoma visto real en Distrito Zero (tema IQIT) — 19 de 20 `raw_name` en revisión de esa tienda terminaban en `"..."` literal. El mecanismo (`_looks_truncated`/visitar la ficha individual, reutilizando el `h1` que ya usa `_parse_product_detail`) nunca se había enganchado en `PrestaShopScraper` pese a que el patrón, por diseño, no depende de la plataforma. Verificado en vivo tras el fix: 0 nombres truncados de 66 productos de Distrito Zero (antes 20).
+
+Auditoría completa de la cola `needs_review` (182 → 49 filas) el 2026-08-29 — lookups nuevos de personaje/título de release, categoría-único-SKU auto-confirma, y varios bugs reales de composición corregidos (regex sin `IGNORECASE`, `raw_tags` reciclado pisando el `name`, código explícito no pisaba un tipo ya mal resuelto). Detalle completo en `docs/pendientes-motor-matching.md` (puntos 6, 10-16) y `tests/README.md`.
+
 ## Refresco individual de producto (E.2) y polling de sitemap (E.1)
 
 Además del barrido completo por categoría, cada scraper implementa `refresh_product(config, store_url, *, store_sku=None, etag=None, last_modified=None) -> RefreshOutcome` (método de clase, sin necesitar categoría/logger/delay) para consultar UN producto ya conocido sin recorrer la tienda entera. Reutiliza cabeceras condicionales (A.4: `If-None-Match`/`If-Modified-Since`) cuando el servidor las soporta — si no cambió, `status="not_modified"` (304) y no hay nada que reprocesar.
@@ -344,7 +348,7 @@ Tres jobs: `barrido_diario` (cron, 1x/día, reutiliza `main()` tal cual), `refre
 
 ## Tests
 
-333 tests (`pytest`), pirámide invertida a propósito respecto a un proyecto típico: el riesgo real aquí no es "se rompió la lógica de negocio pura" (barata de cubrir con unitarios), sino "una tienda cambió su HTML" o "el SQL no hace lo que creo" -- de ahí el peso en integración con HTTP mockeado y Postgres real, no solo mocks de todo.
+423 tests (`pytest`), pirámide invertida a propósito respecto a un proyecto típico: el riesgo real aquí no es "se rompió la lógica de negocio pura" (barata de cubrir con unitarios), sino "una tienda cambió su HTML" o "el SQL no hace lo que creo" -- de ahí el peso en integración con HTTP mockeado y Postgres real, no solo mocks de todo.
 
 ```bash
 pip install -r requirements-dev.txt
@@ -379,7 +383,7 @@ Documentadas directamente en los comentarios de `STORES` (bloque "Pendientes" al
 store_monitor/
 ├── README.md
 ├── requirements.txt      -- incluye `-e ../shared` (domain.py/classify.py, ver ../shared/)
-├── config.py             -- STORES (56 tiendas) + constantes de identidad HTTP (A.1)
+├── config.py             -- STORES (55 tiendas) + constantes de identidad HTTP (A.1)
 ├── http_client.py        -- build_session(), request_with_retries(), StoreLogger, conditional_headers()
 ├── dispatcher.py         -- scrape_store()/query_store()/run_all_stores(), robots.txt, circuit breaker
 ├── base_script.py        -- entry point (`python base_script.py`): batch completo + CSV + main()

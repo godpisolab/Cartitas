@@ -263,6 +263,77 @@ class TestAutoConfirmadoPorSetCode:
 
 
 # ===========================================================================
+# 6.1c -- Categoría con un único SKU posible (2026-08-29, auditoría needs_review)
+# ===========================================================================
+
+class TestCategoriaUnSoloSKU:
+    """LEARN_DECK/DICE_ACCESSORY solo tienen 1 producto canónico sembrado en
+    TODO el catálogo -- ver matcher._single_sku_categories(). single_sku_categories
+    es un parámetro opcional de _evaluate() (default frozenset() vacío) para
+    no romper el resto de tests de este fichero, que no lo pasan."""
+
+    def test_categoria_unico_sku_confirma_pese_a_similitud_bajisima(self, db_conn, monkeypatch):
+        category_id = seed_category(db_conn, slug="learn-deck", name="Learn Deck")
+        # set_code=None en ambos lados (LEARN_DECK nunca tiene código) --
+        # score muy bajo, no debería importar: la categoría en sí ya es la
+        # señal, no hay ningún otro candidato posible.
+        stub_candidate(monkeypatch, set_code=None, language="EN", score=0.05, es_fallback=False)
+        classification = make_classification(product_type="LEARN_DECK", set_code=None, language="EN", main_set=None)
+        with db_conn.cursor() as cur:
+            outcome = matcher._evaluate(
+                cur, {"learn-deck": category_id}, classification, "learn-deck", "raw name",
+                single_sku_categories={category_id},
+            )
+        assert outcome.match_status == "confirmed"
+        assert outcome.match_confidence == 0.05
+
+    def test_categoria_no_marcada_como_unico_sku_no_se_ve_afectada(self, db_conn, monkeypatch):
+        # Control negativo -- MISMO candidato que el test de arriba (score
+        # 0.5, entre los dos umbrales 0.35/0.6 para caer en needs_review por
+        # el camino de siempre), pero category_id no está en
+        # single_sku_categories: se comporta como antes de este cambio.
+        category_id = seed_category(db_conn, slug="learn-deck", name="Learn Deck")
+        stub_candidate(monkeypatch, set_code=None, language="EN", score=0.5, es_fallback=False)
+        classification = make_classification(product_type="LEARN_DECK", set_code=None, language="EN", main_set=None)
+        with db_conn.cursor() as cur:
+            outcome = matcher._evaluate(
+                cur, {"learn-deck": category_id}, classification, "learn-deck", "raw name",
+                single_sku_categories=set(),
+            )
+        assert outcome.match_status == "needs_review"
+
+    def test_categoria_unico_sku_no_confirma_si_es_fallback(self, db_conn, monkeypatch):
+        # es_fallback=True sigue bloqueando incluso en categoría de único
+        # SKU -- mismo motivo que el camino rápido de set_code (señal más
+        # débil a propósito, ver _best_candidate). Score 0.5 (no 0.05): así
+        # se aísla que el bloqueo lo causa es_fallback y no el umbral de
+        # similitud del camino de siempre.
+        category_id = seed_category(db_conn, slug="learn-deck", name="Learn Deck")
+        stub_candidate(monkeypatch, set_code=None, language="EN", score=0.5, es_fallback=True)
+        classification = make_classification(product_type="LEARN_DECK", set_code=None, language="EN", main_set=None)
+        with db_conn.cursor() as cur:
+            outcome = matcher._evaluate(
+                cur, {"learn-deck": category_id}, classification, "learn-deck", "raw name",
+                single_sku_categories={category_id},
+            )
+        assert outcome.match_status == "needs_review"
+
+    def test_categoria_unico_sku_no_confirma_si_idioma_contradice(self, db_conn, monkeypatch):
+        # El único candidato es EN, pero la tienda marca JP explícito --
+        # mejor needs_review que asignar mal el idioma. Score 0.5 por el
+        # mismo motivo que el test de arriba.
+        category_id = seed_category(db_conn, slug="learn-deck", name="Learn Deck")
+        stub_candidate(monkeypatch, set_code=None, language="EN", score=0.5, es_fallback=False)
+        classification = make_classification(product_type="LEARN_DECK", set_code=None, language="JP", main_set=None)
+        with db_conn.cursor() as cur:
+            outcome = matcher._evaluate(
+                cur, {"learn-deck": category_id}, classification, "learn-deck", "raw name",
+                single_sku_categories={category_id},
+            )
+        assert outcome.match_status == "needs_review"
+
+
+# ===========================================================================
 # _best_candidate -- set_code exacto gana a similitud pura (contra Postgres
 # real: hace falta similarity() de pg_trgm de verdad, no un stub)
 # ===========================================================================

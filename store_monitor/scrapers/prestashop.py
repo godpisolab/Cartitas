@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 
 from bs4 import BeautifulSoup
@@ -72,9 +73,19 @@ class PrestaShopScraper(BaseStoreScraper):
                 if item["id_product"]:
                     seen_ids.add(item["id_product"])
                 new_in_page += 1
+
+                name = item["name"]
+                if self._looks_truncated(name) and item["url"]:
+                    full_name = self._resolve_truncated_name(session, item["url"])
+                    if full_name:
+                        self.logger.log(f"nombre truncado en el listado, resuelto desde la ficha: "
+                                         f"{name!r} -> {full_name!r}")
+                        name = full_name
+                    time.sleep(self.delay)
+
                 products.append(self._make_product(
                     id_product=item["id_product"],
-                    name=item["name"],
+                    name=name,
                     price=parse_price_text(item["price"]),
                     stock_status=item["stock_status"],
                     url=item["url"],
@@ -158,6 +169,30 @@ class PrestaShopScraper(BaseStoreScraper):
             stock_status = "DISPONIBLE"
 
         return {"price": price, "stock_status": stock_status, "name": name}
+
+    # Detecta títulos recortados en el listado -- por PATRÓN, no por tienda
+    # (mismo criterio que WooCommerceScraper._looks_truncated, verificado
+    # primero en Arte9/WooCommerce, ahora visto también en Distrito Zero con
+    # el tema IQIT de PrestaShop: cualquier tema que trunque el título y
+    # deje un "..." literal dispara la misma resolución vía ficha individual).
+    _TRUNCATED_TITLE_RE = re.compile(r"(\.\s*){2,}$|…\s*$")
+
+    @classmethod
+    def _looks_truncated(cls, name: Optional[str]) -> bool:
+        return bool(name) and bool(cls._TRUNCATED_TITLE_RE.search(name))
+
+    def _resolve_truncated_name(self, session, url: str) -> Optional[str]:
+        """Visita la ficha individual para recuperar el título completo
+        cuando el listado lo trunca -- reutiliza el mismo h1 que
+        _parse_product_detail (ver su comentario: itemprop=name apunta al
+        breadcrumb en este tema, no al producto)."""
+        full_url = url if url.startswith("http") else f"{self.config.domain}{url}"
+        resp = request_with_retries(session, full_url, heartbeat=self.logger.touch)
+        if resp is None or resp.status_code != 200:
+            return None
+        soup = BeautifulSoup(resp.text, "html.parser")
+        title_tag = soup.select_one("h1")
+        return title_tag.get_text(strip=True) if title_tag else None
 
     @staticmethod
     def _parse_page(html: str):

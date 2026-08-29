@@ -98,6 +98,55 @@ class TestPrestaShopScraper:
         assert products == []
 
 
+class TestNombreTruncado:
+    """Tema IQIT recorta el título en el listado (visto real en Distrito
+    Zero) -- mismo patrón que WooCommerceScraper (Arte9/Madara), el
+    disparador es el "..." literal en el nombre, no la tienda."""
+
+    def _mock_home(self, requests_mock):
+        requests_mock.get("https://tienda.example/", text="<html>home</html>")
+
+    def test_nombre_truncado_se_resuelve_desde_la_ficha(self, requests_mock):
+        self._mock_home(requests_mock)
+        requests_mock.get(
+            "https://tienda.example/10-categoria",
+            text=category_page(product_article("1", name="ONE PIECE CARD GAME ULTRA DECK -THE THREE...")),
+        )
+        requests_mock.get(
+            "https://tienda.example/producto-1",
+            text='<h1>ONE PIECE CARD GAME ULTRA DECK -THE THREE CAPTAINS- ST10</h1>',
+        )
+        scraper = make_scraper()
+        products = scraper.scrape()
+        assert len(products) == 1
+        assert products[0].name == "ONE PIECE CARD GAME ULTRA DECK -THE THREE CAPTAINS- ST10"
+
+    def test_nombre_no_truncado_no_visita_la_ficha(self, requests_mock):
+        self._mock_home(requests_mock)
+        requests_mock.get(
+            "https://tienda.example/10-categoria",
+            text=category_page(product_article("1", name="Booster Box OP-16 EN")),
+        )
+        # A propósito SIN registrar https://tienda.example/producto-1 -- si
+        # el scraper la visitara, requests_mock lanzaría NoMockAddress.
+        scraper = make_scraper()
+        products = scraper.scrape()
+        assert products[0].name == "Booster Box OP-16 EN"
+
+    def test_si_la_ficha_falla_se_queda_con_el_nombre_truncado_original(self, requests_mock):
+        self._mock_home(requests_mock)
+        requests_mock.get(
+            "https://tienda.example/10-categoria",
+            text=category_page(product_article("1", name="RED STARTER DECK ONE PIECE . . .")),
+        )
+        requests_mock.get("https://tienda.example/producto-1", status_code=500)
+        scraper = make_scraper()
+        products = scraper.scrape()
+        # No revienta el barrido ni descarta el producto -- se queda con lo
+        # que ya tenía del listado.
+        assert products[0].name == "RED STARTER DECK ONE PIECE . . ."
+
+
 class TestPrestaShopRefreshProduct:
     def test_microdata_price_availability_instock(self, requests_mock):
         html = """

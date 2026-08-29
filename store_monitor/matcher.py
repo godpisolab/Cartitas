@@ -73,6 +73,18 @@ def _category_ids(conn) -> dict[str, int]:
         return dict(cur.fetchall())
 
 
+def _single_sku_categories(conn) -> set[int]:
+    """Categorías con exactamente 1 producto canónico sembrado (2026-08-29,
+    auditoría de needs_review) -- LEARN_DECK/DICE_ACCESSORY hoy. Se
+    recalcula en cada run_matching() en vez de mantenerse como lista fija a
+    mano: si se siembra un segundo SKU en una de estas categorías más
+    adelante, la siguiente pasada deja de auto-confirmar sola, sin tocar
+    este código (mismo principio que category_ids, calculado en caliente)."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT category_id FROM product GROUP BY category_id HAVING count(*) = 1")
+        return {row[0] for row in cur.fetchall()}
+
+
 def _best_candidate(cur, category_id: int, raw_name: str, set_code: Optional[str] = None,
                      language: Optional[str] = None):
     """Top-1 candidato dentro de la categoría -- basta con 1 para decidir el
@@ -171,6 +183,7 @@ def _best_candidate(cur, category_id: int, raw_name: str, set_code: Optional[str
 
 def _evaluate(
     cur, category_ids: dict[str, int], classification: Classification, category_slug: Optional[str], raw_name: str,
+    single_sku_categories: set[int] = frozenset(),
 ) -> MatchOutcome:
     if classification.product_type in NOT_APPLICABLE_PRODUCT_TYPES:
         return MatchOutcome("not_applicable", None, None)
@@ -217,6 +230,22 @@ def _evaluate(
         # lanzamiento, no ambigüedad por falta de dato.
         return MatchOutcome("unmatched", None, None)
 
+    language_matches = classification.language is not None and language == classification.language
+
+    # Categoría con un único SKU posible en TODO el catálogo (2026-08-29,
+    # auditoría de needs_review: LEARN_DECK/DICE_ACCESSORY solo tienen 1
+    # producto sembrado cada una) -- no hay nada con qué confundirlo, así
+    # que ni el umbral de similitud ni "cantidad ambigua" aportan nada aquí,
+    # solo bloquean un match que ya es inequívoco por construcción. Se exige
+    # es_fallback=False (mismo motivo que el camino rápido de abajo) y que
+    # el idioma no contradiga explícitamente al único candidato -- si la
+    # tienda SÍ marca JP y el único sembrado es EN, mejor needs_review que
+    # asignar mal el idioma.
+    if category_id in single_sku_categories and not es_fallback and (
+        classification.language is None or language_matches
+    ):
+        return MatchOutcome("confirmed", product_id, score)
+
     if not set_code_matches and score < REVIEW_SIMILARITY_THRESHOLD:
         # El piso de similitud SOLO protege el camino de siempre (candidato
         # sin set_code exacto) -- cuando set_code_matches es True, el resto
@@ -226,7 +255,6 @@ def _evaluate(
         # 1.5).
         return MatchOutcome("unmatched", None, None)
 
-    language_matches = classification.language is not None and language == classification.language
     cantidad_ok = not cantidad_es_ambigua(raw_name, category_slug)
 
     # Las CINCO condiciones a la vez (1.5): categoría real (ya garantizado
@@ -262,6 +290,7 @@ def run_matching(conn) -> dict[str, int]:
             "La tabla category está vacía -- aplica seed-catalog-app-tcg.sql "
             "antes de correr el matcher (ver D.2)."
         )
+    single_sku_categories = _single_sku_categories(conn)
 
     counts: dict[str, int] = defaultdict(int)
 
@@ -273,7 +302,7 @@ def run_matching(conn) -> dict[str, int]:
 
         for store_product_id, raw_name, raw_variant, raw_tags in rows:
             classification, category_slug = classify_with_category(raw_name, raw_variant, raw_tags)
-            outcome = _evaluate(cur, category_ids, classification, category_slug, raw_name)
+            outcome = _evaluate(cur, category_ids, classification, category_slug, raw_name, single_sku_categories)
             cur.execute(
                 """
                 UPDATE store_product
