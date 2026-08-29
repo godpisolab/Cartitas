@@ -62,7 +62,7 @@ Esto no significa necesariamente sacarlo a YAML/JSON/BBDD — puede seguir siend
 Esto **no** es una corrección, es una práctica que ya funciona bien en este proyecto y merece quedar escrita como estándar para que no se pierda al refactorizar:
 
 - Cada decisión de diseño no obvia lleva su razón en un docstring/comentario junto al código, no solo en el documento de diseño aparte — quien lee `OpenCartScraper` entiende *por qué* el stock nunca se adivina sin tener que ir a buscar el documento de decisiones.
-- Los bugs reales encontrados en producción (Arte9, Pokemillon, TCG Legacy...) se documentan con el nombre de la tienda y qué se vio exactamente — esto convierte el código en una base de casos de prueba reales, y es oro para escribir tests de regresión (ver `plan_de_pruebas.md`).
+- Los bugs reales encontrados en producción (Arte9, Pokemillon, TCG Legacy...) se documentan con el nombre de la tienda y qué se vio exactamente — esto convierte el código en una base de casos de prueba reales, y es oro para escribir tests de regresión.
 - Cuando algo es una limitación conocida y aceptada (no un bug pendiente), se dice explícitamente como tal ("decisión deliberada, no un descuido") — evita que alguien "arregle" en el futuro algo que era intencional.
 
 **Regla a partir de ahora:** todo módulo nuevo lleva un docstring de cabecera que dice, en una o dos frases, qué responsabilidad tiene y por qué existe como módulo separado (no solo qué hace). Si cuesta escribir esa frase en una línea sin usar "y" tres veces, el módulo probablemente tiene más de una responsabilidad.
@@ -71,7 +71,7 @@ Esto **no** es una corrección, es una práctica que ya funciona bien en este pr
 
 ## 5. Testing — parte del mismo estándar, no una fase aparte
 
-Ya definido en detalle en `plan_de_pruebas.md` — se resume aquí como regla de organización porque está directamente relacionado: **un módulo bien cortado por capas es automáticamente más fácil de testear**, y viceversa, la dificultad de testear algo es una señal temprana de mal corte.
+Se resume aquí como regla de organización porque está directamente relacionado: **un módulo bien cortado por capas es automáticamente más fácil de testear**, y viceversa, la dificultad de testear algo es una señal temprana de mal corte.
 
 - Lógica pura (dominio, clasificación, parseo) → tests unitarios rápidos, sin mocks de red/BBDD. Si escribir uno de estos tests obliga a importar `cloudscraper`/`psycopg2`, el módulo está mezclando capas.
 - Infraestructura HTTP y scrapers → tests de integración con HTTP mockeado (`requests-mock`), nunca contra la red real.
@@ -100,7 +100,7 @@ Aplicable en particular a commits que tocan varios módulos a la vez (como el qu
 - [ ] ¿Se ha añadido algún `import` dentro de una función para evitar un ciclo? Si sí, es una señal a resolver, no a normalizar.
 - [ ] ¿El cambio de esquema (si lo hay) es una migración versionada, o una edición directa del `.sql` que alguien con datos reales tendrá que reconciliar a mano?
 - [ ] ¿Los módulos nuevos tienen su docstring de responsabilidad y sus tests correspondientes en el mismo commit?
-- [ ] ¿La documentación de diseño (`docs/*.md`) sigue siendo consistente con lo que el código realmente hace, o quedó algo desactualizado (como pasó con `suggested_product_id` en `modelo-datos-app-tcg.md`, que el propio esquema ya había retirado)?
+- [ ] ¿La documentación de diseño (`docs/*.md`) sigue siendo consistente con lo que el código realmente hace, o quedó algo desactualizado (como pasó con `suggested_product_id` en `docs/producto/modelo-datos.md`, que el propio esquema ya había retirado)?
 
 ---
 

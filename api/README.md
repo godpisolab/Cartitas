@@ -1,8 +1,8 @@
 # Cartitas API
 
-Servicio FastAPI + SQLModel, hermano de `store_monitor/` (no un módulo dentro de él -- ver `docs/estandares-implementacion-api.md`, sección 1). Sirve el catálogo/comparación de precios que alimenta el scraper; no escribe en la BBDD que consulta salvo en los endpoints de escritura explícitos (matching, suscripciones, administración).
+Servicio FastAPI + SQLModel, hermano de `store_monitor/` (no un módulo dentro de él -- ver `docs/api/estandares-implementacion.md`, sección 1). Sirve el catálogo/comparación de precios que alimenta el scraper; no escribe en la BBDD que consulta salvo en los endpoints de escritura explícitos (matching, suscripciones, administración).
 
-Estado actual: toda la superficie de `docs/api-endpoints-v1.md` + `docs/api-endpoints-gestor.md` implementada, salvo `POST /stores/{id}/scrape` (aplazado explícitamente -- ver "Endpoints pendientes" más abajo). Panel de gestor completo (matching, productos, tiendas) también implementado -- ver "Panel de gestor" más abajo.
+Estado actual: toda la superficie de `docs/api/endpoints-v1.md` + `docs/api/endpoints-gestor.md` implementada, salvo `POST /stores/{id}/scrape` (aplazado explícitamente -- ver "Endpoints pendientes" más abajo). Panel de gestor completo (matching, productos, tiendas) también implementado -- ver "Panel de gestor" más abajo.
 
 ## Instalación
 
@@ -19,7 +19,7 @@ Requiere el mismo Postgres que `store_monitor/` (ver `docker_composes/docker-com
 | Variable | Default | Qué es |
 |---|---|---|
 | `DATABASE_URL` | `postgresql://cartitas:cartitas@localhost:5433/cartitas` | Conexión a Postgres |
-| `API_KEYS_JSON` | `{}` (ninguna key válida) | `{"clave": ["read", "write:subscriptions"], ...}` -- API keys estáticas por cliente y sus scopes (ver `docs/api-endpoints-v1.md` sección 0). Los scopes usados hoy: `read`, `write:subscriptions`, `admin:*` (panel de revisión/gestor, un único scope amplio -- ver `docs/api-endpoints-gestor.md` sección 0) |
+| `API_KEYS_JSON` | `{}` (ninguna key válida) | `{"clave": ["read", "write:subscriptions"], ...}` -- API keys estáticas por cliente y sus scopes (ver `docs/api/endpoints-v1.md` sección 0). Los scopes usados hoy: `read`, `write:subscriptions`, `admin:*` (panel de revisión/gestor, un único scope amplio -- ver `docs/api/endpoints-gestor.md` sección 0) |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `""` (ninguna credencial válida) | Credencial de PERSONA para `/admin/*` (HTTP Basic) -- deliberadamente separada de `API_KEYS_JSON`, ver "Panel de gestor" más abajo |
 
 ## Uso
@@ -32,7 +32,7 @@ Documentación interactiva en `/docs` (Swagger UI) y `/redoc`, generada automát
 
 ## Arquitectura
 
-Capas de dependencia unidireccional, misma disciplina que `store_monitor/` (ver `docs/estandares_organizacion_codigo.md`), adaptada al patrón de FastAPI (ver `docs/estandares-implementacion-api.md`, sección 2):
+Capas de dependencia unidireccional, misma disciplina que `store_monitor/` (ver `docs/estandares/organizacion-codigo.md`), adaptada al patrón de FastAPI (ver `docs/api/estandares-implementacion.md`, sección 2):
 
 ```
 models/ (SQLModel, reflejo del esquema SQL, sin lógica)
@@ -68,7 +68,7 @@ main.py (junta routers, registra el exception handler, CORS)
 | `GET /stores` / `GET /stores/{id}` | `read` | Listado y detalle (con campos dinámicos de scraping respetuoso: `sitemapUrl`, `crawlDelaySeconds`, `disallowed`, etc. -- `sitemapUrl` añadido a `StoreDetail` el 2026-08-27, faltaba pese a que `PATCH` ya lo aceptaba). |
 | `PATCH /stores/{id}` | `admin:*` | Edita `sitemapUrl`/`active`. `active=false` SÍ excluye la tienda del próximo barrido (cableado en `store_monitor/dispatcher.py`). |
 | `GET /games`, `GET /categories` | `read` | Catálogo de filtros; `categories` como árbol de dos niveles. |
-| `POST /subscriptions` | `write:subscriptions` | Sin `Idempotency-Key` real -- se apoya en `UNIQUE NULLS NOT DISTINCT(productId, storeId, pushEndpoint)`, `409` en reintento (ver `docs/estandares-implementacion-api.md` sección 7). |
+| `POST /subscriptions` | `write:subscriptions` | Sin `Idempotency-Key` real -- se apoya en `UNIQUE NULLS NOT DISTINCT(productId, storeId, pushEndpoint)`, `409` en reintento (ver `docs/api/estandares-implementacion.md` sección 7). |
 | `DELETE /subscriptions/{id}` | `write:subscriptions` | Requiere `pushEndpoint` como prueba de propiedad (`403` si no coincide). |
 | `GET /subscriptions?pushEndpoint=` | `read` | "Productos que sigues" de un dispositivo, sin cuenta de usuario. |
 | `GET /matches` | `admin:*` | Cola de matching -- `status` en `needsReview`/`unmatched`/`confirmed`/`all`, `minSimilarity`/`maxSimilarity` sobre el top-1 candidato calculado en caliente (nunca sobre `matchConfidence`), oculta lo revisado hace menos de 14 días salvo `includeReviewed=true`. |
@@ -77,7 +77,7 @@ main.py (junta routers, registra el exception handler, CORS)
 
 ## Panel de gestor
 
-HTML server-rendered (Jinja2 + htmx en matching, formularios de página completa en productos/tiendas) dentro del propio proceso de `api/`, no una SPA aparte -- decisión y por qué en `docs/frontend-arquitectura-decidida.md` sección 3, cómo se organiza en `docs/estandares-implementacion-frontend.md` parte 2, cierre de fase completo en `docs/plan-cierre-panel-gestor.md`.
+HTML server-rendered (Jinja2 + htmx en matching, formularios de página completa en productos/tiendas) dentro del propio proceso de `api/`, no una SPA aparte -- decisión y por qué en `docs/frontend/arquitectura-decidida.md` sección 3, cómo se organiza en `docs/frontend/estandares-implementacion.md` parte 2, cierre de fase completo en `docs/plan-cierre-panel-gestor.md`.
 
 - `admin/auth.py` -- HTTP Basic (`ADMIN_USERNAME`/`ADMIN_PASSWORD`), mecanismo distinto del Bearer+scope de `auth.py`. Aplicado una única vez en `main.py` (`dependencies=[Depends(verify_admin)]` por router de `/admin`), nunca a mano dentro de una ruta. **Falla cerrado si no se configuran las variables** -- sin esto, `ADMIN_USERNAME`/`ADMIN_PASSWORD` a `""` (default sin configurar) haría que `compare_digest("", "")` fuera `True` y unas credenciales vacías (`curl -u ":"`) entraran como admin; `verify_admin()` rechaza explícitamente el caso "ninguna de las dos está configurada" antes de comparar.
 - Todas las rutas de `admin/routes/*.py` llaman a `services/*.py` directamente, sin pasar por HTTP ni por ninguna API key.
@@ -90,7 +90,7 @@ HTML server-rendered (Jinja2 + htmx en matching, formularios de página completa
 
 ## Endpoints pendientes
 
-- `POST /stores/{id}/scrape` (`docs/api-endpoints-gestor.md` sección 3) -- expondría `dispatcher.query_store()`, pero `api/` no tiene (a propósito) las dependencias de scraping de `store_monitor/`. Aplazado como su propia tarea de diseño hasta decidir el puente entre los dos servicios (subproceso, cola de trabajos...).
+- `POST /stores/{id}/scrape` (`docs/api/endpoints-gestor.md` sección 3) -- expondría `dispatcher.query_store()`, pero `api/` no tiene (a propósito) las dependencias de scraping de `store_monitor/`. Aplazado como su propia tarea de diseño hasta decidir el puente entre los dos servicios (subproceso, cola de trabajos...).
 
 ## Tests
 

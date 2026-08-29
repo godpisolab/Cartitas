@@ -53,7 +53,7 @@ Tarda entre 2 y 3 minutos las 55 tiendas (las que usan `Platform.ODOO` o `Platfo
 
 ## Arquitectura
 
-Refactorizado (2026-08-26, ver `docs/estandares_organizacion_codigo.md`) en capas de dependencia unidireccional -- cada módulo solo depende de los de su izquierda, nunca al revés, así que ya no hace falta ningún import diferido dentro de una función para evitar un ciclo:
+Refactorizado (2026-08-26, ver `docs/estandares/organizacion-codigo.md`) en capas de dependencia unidireccional -- cada módulo solo depende de los de su izquierda, nunca al revés, así que ya no hace falta ningún import diferido dentro de una función para evitar un ciclo:
 
 ```
 shared/(domain.py, classify.py) → config.py → persistence.py → store_state.py → http_client.py → dispatcher.py → scrapers/ → base_script.py
@@ -90,7 +90,7 @@ scrapers/
 └── generic_jsonld.py   -- listado configurable + JSON-LD por producto (CMS a medida)
 ```
 
-**Por qué está separado así:** cada capa tiene una única responsabilidad y solo puede depender de las capas por debajo de ella (ver la regla completa en `docs/estandares_organizacion_codigo.md`, sección 2) -- añadir una tienda solo toca `config.py`, cambiar cómo se reintenta una petición solo toca `http_client.py`, etc. `scrapers/` tiene un archivo por plataforma, cada uno con la lógica específica de cómo esa plataforma expone su catálogo; un scraper nuevo solo necesita implementar `scrape() -> list[Product]` y depende únicamente de `shared.domain`/`http_client.py`/`shared.classify`, nunca del dispatcher.
+**Por qué está separado así:** cada capa tiene una única responsabilidad y solo puede depender de las capas por debajo de ella (ver la regla completa en `docs/estandares/organizacion-codigo.md`, sección 2) -- añadir una tienda solo toca `config.py`, cambiar cómo se reintenta una petición solo toca `http_client.py`, etc. `scrapers/` tiene un archivo por plataforma, cada uno con la lógica específica de cómo esa plataforma expone su catálogo; un scraper nuevo solo necesita implementar `scrape() -> list[Product]` y depende únicamente de `shared.domain`/`http_client.py`/`shared.classify`, nunca del dispatcher.
 
 ### El flujo de una tienda
 
@@ -205,7 +205,7 @@ Si una tienda WooCommerce no tiene categoría estándar fiable, usa `woocommerce
 
 ## Estándares de scraping respetuoso
 
-Ver `cambios-necesarios-scraper.md` (bloque A) para la discusión completa de estas decisiones.
+Ver `docs/scraper/cambios-necesarios.md` (bloque A) para la discusión completa de estas decisiones.
 
 - **User-Agent identificable** (`IDENTIFIABLE_USER_AGENT`): el scraper se identifica como `CartitasPriceWatch/1.0 (+<URL de contacto>)` en vez de imitar un navegador. La URL de contacto (`BOT_CONTACT_URL`) es un placeholder pendiente de sustituir por el dominio real. Si una tienda concreta bloquea este UA, se marca esa `StoreConfig` con `ua_exception=True` (usa entonces `BROWSER_LIKE_USER_AGENT`) — es una excepción documentada por tienda, no un revert global.
 - **robots.txt / Crawl-delay** (`get_robots_rules`, `scrape_store`): antes de scrapear se comprueba (y cachea una semana, en `store.robots_checked_at`/`crawl_delay_seconds`/`disallowed`) el robots.txt de la tienda contra la URL de listado que se va a pedir. Si el `Disallow` la cubre, la tienda se excluye ese ciclo con motivo explícito en logs — no se ignora robots.txt para scrapear igualmente. Si declara `Crawl-delay`, se usa como mínimo entre peticiones a esa tienda (nunca por debajo de `DEFAULT_DELAY`).
@@ -238,7 +238,7 @@ result.error     # motivo legible, o None si status == "ok"
 
 ## Persistencia en PostgreSQL
 
-Además del CSV, `main()` escribe en PostgreSQL vía `persistence.py` (bloque B de `cambios-necesarios-scraper.md`). Ya no es un hook opcional como el antiguo `price_history.py` mencionado en versiones previas de este README — es parte central del flujo, aunque un fallo de conexión puntual no destruye el CSV (ya se guardó antes).
+Además del CSV, `main()` escribe en PostgreSQL vía `persistence.py` (bloque B de `docs/scraper/cambios-necesarios.md`). Ya no es un hook opcional como el antiguo `price_history.py` mencionado en versiones previas de este README — es parte central del flujo, aunque un fallo de conexión puntual no destruye el CSV (ya se guardó antes).
 
 Variable de entorno `DATABASE_URL` (por defecto apunta al contenedor de `docker-compose.yml`, puerto **5433** — no el 5432, para no chocar con un Postgres del sistema):
 
@@ -258,7 +258,7 @@ Dos escrituras, cada ejecución de `main()`:
 
 ## Matching a producto canónico
 
-Tras persistir, `main()` ejecuta `matcher.run_matching()` (bloque C de `cambios-necesarios-scraper.md`): vincula cada `store_product.raw_name` a un `product` canónico, o decide que no se puede vincular todavía. **No es aprendizaje automático** — `classify_product()` es determinista (reglas fijas de texto, las mismas del scraper) y la similitud usa `pg_trgm` sobre `name_canonical`. Si un patrón de error se repite, la corrección es editar `CLASSIFICATION_RULES` a mano, no reentrenar nada.
+Tras persistir, `main()` ejecuta `matcher.run_matching()` (bloque C de `docs/scraper/cambios-necesarios.md`): vincula cada `store_product.raw_name` a un `product` canónico, o decide que no se puede vincular todavía. **No es aprendizaje automático** — `classify_product()` es determinista (reglas fijas de texto, las mismas del scraper) y la similitud usa `pg_trgm` sobre `name_canonical`. Si un patrón de error se repite, la corrección es editar `CLASSIFICATION_RULES` a mano, no reentrenar nada.
 
 **Requisito previo**: la tabla `category` tiene que estar sembrada con los 14 tipos reales (D.2) antes de poder matchear nada:
 
@@ -276,9 +276,9 @@ python3 seed_official_catalog.py
 
 Cada lanzamiento tipo booster se siembra dos veces (Booster Box + Booster Pack) porque las tiendas los venden como SKUs distintos con precios muy distintos. Los productos sin categoría en la taxonomía de 14 tipos (fundas, binders, cajas de almacenaje sueltas, sets de aniversario...) se omiten y se listan al final de la ejecución.
 
-**Hecho (2026-08-28, `docs/pendientes-motor-matching.md`):** cada release booster con multiplicador conocido se siembra TAMBIÉN como `booster-case` (EN+JP) -- `x12` para `booster-box`, `x10` para `premium-collection` (verificado real, no uniforme; `starter-deck`/`double-pack` se dejan sin Case a falta de evidencia). La variante JP (antes solo `booster-box`/`booster-pack`) se amplió a `booster-case`/`double-pack`/`premium-collection`. Además, `BOOSTER_CASE` en `classify_product()` dejó de ser un keyword suelto (colaba accesorios reales como "Limited Card Case -Monkey.D.Luffy-") y pasó a exigir "case" + contexto (código de set o palabra de caja/booster/sellado) en el mismo texto -- validado fila a fila contra las 34 menciones reales de "case" del CSV.
+**Hecho (2026-08-28, `docs/matching/motor-matching.md`):** cada release booster con multiplicador conocido se siembra TAMBIÉN como `booster-case` (EN+JP) -- `x12` para `booster-box`, `x10` para `premium-collection` (verificado real, no uniforme; `starter-deck`/`double-pack` se dejan sin Case a falta de evidencia). La variante JP (antes solo `booster-box`/`booster-pack`) se amplió a `booster-case`/`double-pack`/`premium-collection`. Además, `BOOSTER_CASE` en `classify_product()` dejó de ser un keyword suelto (colaba accesorios reales como "Limited Card Case -Monkey.D.Luffy-") y pasó a exigir "case" + contexto (código de set o palabra de caja/booster/sellado) en el mismo texto -- validado fila a fila contra las 34 menciones reales de "case" del CSV.
 
-Umbrales (aprobados 2026-08-26 como valores de partida, calibrados con datos reales el 2026-08-27 -- ver detalle completo en `docs/cambios-necesarios-scraper.md` sección C.2):
+Umbrales (aprobados 2026-08-26 como valores de partida, calibrados con datos reales el 2026-08-27 -- ver detalle completo en `docs/scraper/cambios-necesarios.md` sección C.2):
 
 | Condición | Resultado |
 |---|---|
@@ -289,11 +289,11 @@ Umbrales (aprobados 2026-08-26 como valores de partida, calibrados con datos rea
 
 `set_code`, no `main_set` (corregido 2026-08-27): `main_set` solo está poblado para la familia `OP`, así que para el resto (`ST`/`DP`/`EB`/`PRB`/`DF`/Illustration Box/Playmat) el chequeo pasaba en falso y no protegía nada. `set_code` cubre las 6 familias.
 
-**Hecho (2026-08-27, `docs/implementacion-auto-confirmado-setcode.md`):** la tabla de arriba sigue vigente como camino de respaldo (sin `set_code` exacto en algún lado), pero ahora hay un camino RÁPIDO que confirma sin depender de `similarity` en absoluto: candidato PRIMARIO de su propia categoría (no el fallback cross-categoría de más abajo, marcado `es_fallback` por `_best_candidate`) + `set_code` + idioma exactos + cantidad no ambigua (`cantidad_es_ambigua()` en `shared/classify.py` -- detecta bundles reales como "Pack 5 Sobres" o un Case "x10" frente a la cantidad estándar de la categoría). Validado contra 8 casos reales de confirmación y 8 falsos positivos reales de `multi_tienda_one_piece.csv` (carta promo suelta emparejada por casualidad de código, Case confundido con caja suelta, idioma JP sin canónico sembrado, lanzamiento inexistente en el catálogo). Categoría nueva `booster-case` (antes "Case" se quedaba sin salida en `needs_review`); `promo-card` se reestructuró bajo un padre propio `single-card` en vez de `Sellado`.
+**Hecho (2026-08-27, `docs/matching/motor-matching.md`):** la tabla de arriba sigue vigente como camino de respaldo (sin `set_code` exacto en algún lado), pero ahora hay un camino RÁPIDO que confirma sin depender de `similarity` en absoluto: candidato PRIMARIO de su propia categoría (no el fallback cross-categoría de más abajo, marcado `es_fallback` por `_best_candidate`) + `set_code` + idioma exactos + cantidad no ambigua (`cantidad_es_ambigua()` en `shared/classify.py` -- detecta bundles reales como "Pack 5 Sobres" o un Case "x10" frente a la cantidad estándar de la categoría). Validado contra 8 casos reales de confirmación y 8 falsos positivos reales de `multi_tienda_one_piece.csv` (carta promo suelta emparejada por casualidad de código, Case confundido con caja suelta, idioma JP sin canónico sembrado, lanzamiento inexistente en el catálogo). Categoría nueva `booster-case` (antes "Case" se quedaba sin salida en `needs_review`); `promo-card` se reestructuró bajo un padre propio `single-card` en vez de `Sellado`.
 
-**Hecho (2026-08-28, `docs/pendientes-motor-matching.md` punto 6):** `_best_candidate()` desempata también por IDIOMA -- dentro de la MISMA categoría+set_code, el canónico EN y el JP comparten casi todo el texto salvo el sufijo, así que `similarity()` los deja a menudo empatados exactos; sin este criterio el `ORDER BY` caía al orden físico de la tabla, que devolvía casi siempre el EN aunque `classify_product()` ya hubiera detectado JP -- 61 filas reales se quedaban en `needs_review` por esto pese a tener el candidato JP correcto ya sembrado. Va DESPUÉS de `set_code` y ANTES de caja/sobre en el `ORDER BY`. Mismo fix aplicado en paralelo a `api/services/matches.py::_top_candidates()` (la lista de sugerencias que ve el panel), para que las dos implementaciones sigan el mismo criterio.
+**Hecho (2026-08-28, `docs/matching/motor-matching.md` punto 6):** `_best_candidate()` desempata también por IDIOMA -- dentro de la MISMA categoría+set_code, el canónico EN y el JP comparten casi todo el texto salvo el sufijo, así que `similarity()` los deja a menudo empatados exactos; sin este criterio el `ORDER BY` caía al orden físico de la tabla, que devolvía casi siempre el EN aunque `classify_product()` ya hubiera detectado JP -- 61 filas reales se quedaban en `needs_review` por esto pese a tener el candidato JP correcto ya sembrado. Va DESPUÉS de `set_code` y ANTES de caja/sobre en el `ORDER BY`. Mismo fix aplicado en paralelo a `api/services/matches.py::_top_candidates()` (la lista de sugerencias que ve el panel), para que las dos implementaciones sigan el mismo criterio.
 
-**Hecho (2026-08-28, `docs/propuesta-mejoras-matching-sesion.md`):** `classify_product()` reconoce `DF-NN` (Devil Fruits Collection) y `DP-NN` (Double Pack) por patrón de código incluso cuando `product_type` habría salido de una `raw_tags` genérica de catálogo (ej. "Cajas") en vez de una keyword real -- el código en el propio nombre/variante es señal más fiable que un tag reutilizado entre productos sin relación (mismo problema que `BOOSTER_CASE`+tags, ver más arriba, pero esta vez el código NO gana si el nombre/variante YA traía una keyword real de otro tipo). También: un rango de códigos (`"ST-15 - ST-20"`, `"[ST-31]~[ST-36]"`) extrae `set_code=None` en vez del primer extremo -- esos packs promocionales están ligados a todo un lote de mazos, no a uno solo, y el extremo suelto disparaba el fallback cross-categoría contra un Starter Deck ajeno. Y `starter-deck` se añadió a `_JP_VARIANT_CATEGORY_SLUGS` (7 ejemplos reales más de demanda JP). Resultado en una pasada real: `needs_review` 182→158 (-13%).
+**Hecho (2026-08-28, `docs/matching/motor-matching.md`):** `classify_product()` reconoce `DF-NN` (Devil Fruits Collection) y `DP-NN` (Double Pack) por patrón de código incluso cuando `product_type` habría salido de una `raw_tags` genérica de catálogo (ej. "Cajas") en vez de una keyword real -- el código en el propio nombre/variante es señal más fiable que un tag reutilizado entre productos sin relación (mismo problema que `BOOSTER_CASE`+tags, ver más arriba, pero esta vez el código NO gana si el nombre/variante YA traía una keyword real de otro tipo). También: un rango de códigos (`"ST-15 - ST-20"`, `"[ST-31]~[ST-36]"`) extrae `set_code=None` en vez del primer extremo -- esos packs promocionales están ligados a todo un lote de mazos, no a uno solo, y el extremo suelto disparaba el fallback cross-categoría contra un Starter Deck ajeno. Y `starter-deck` se añadió a `_JP_VARIANT_CATEGORY_SLUGS` (7 ejemplos reales más de demanda JP). Resultado en una pasada real: `needs_review` 182→158 (-13%).
 
 Idioma no detectado ya no es ambigüedad (corregido 2026-08-27): `classify_product()` asume Inglés cuando ni el nombre ni la variante dicen el idioma -- es la variante que cualquier tienda vende por defecto; cuando venden JP, SIEMPRE lo marcan explícito. Única excepción: el texto "Non-English" se deja en ambiguo, no se asume EN. Antes de este cambio, 190 de 836 `needs_review` reales tenían `set_code` exacto y `similarity > 0.6` pero se quedaban sin confirmar solo por esto.
 
@@ -305,7 +305,7 @@ Idioma no detectado ya no es ambigüedad (corregido 2026-08-27): `classify_produ
 
 **Generalizado a PrestaShop (2026-08-29)**: mismo síntoma visto real en Distrito Zero (tema IQIT) — 19 de 20 `raw_name` en revisión de esa tienda terminaban en `"..."` literal. El mecanismo (`_looks_truncated`/visitar la ficha individual, reutilizando el `h1` que ya usa `_parse_product_detail`) nunca se había enganchado en `PrestaShopScraper` pese a que el patrón, por diseño, no depende de la plataforma. Verificado en vivo tras el fix: 0 nombres truncados de 66 productos de Distrito Zero (antes 20).
 
-Auditoría completa de la cola `needs_review` (182 → 49 filas) el 2026-08-29 — lookups nuevos de personaje/título de release, categoría-único-SKU auto-confirma, y varios bugs reales de composición corregidos (regex sin `IGNORECASE`, `raw_tags` reciclado pisando el `name`, código explícito no pisaba un tipo ya mal resuelto). Detalle completo en `docs/pendientes-motor-matching.md` (puntos 6, 10-16) y `tests/README.md`.
+Auditoría completa de la cola `needs_review` (182 → 49 filas) el 2026-08-29 — lookups nuevos de personaje/título de release, categoría-único-SKU auto-confirma, y varios bugs reales de composición corregidos (regex sin `IGNORECASE`, `raw_tags` reciclado pisando el `name`, código explícito no pisaba un tipo ya mal resuelto). Detalle completo en `docs/matching/motor-matching.md` (puntos 6, 10-16) y `tests/README.md`.
 
 ## Refresco individual de producto (E.2) y polling de sitemap (E.1)
 
@@ -340,7 +340,7 @@ Verificado con un servidor HTTP local simulando ambas respuestas de un servicio 
 
 ## Orquestación (`scheduler.py`, E.1)
 
-Proceso persistente con `APScheduler` (decidido 2026-08-26 frente a cron del sistema, ver `cambios-necesarios-scraper.md`) que sustituye lanzar `python base_script.py` a mano:
+Proceso persistente con `APScheduler` (decidido 2026-08-26 frente a cron del sistema, ver `docs/scraper/cambios-necesarios.md`) que sustituye lanzar `python base_script.py` a mano:
 
 ```bash
 python3 scheduler.py

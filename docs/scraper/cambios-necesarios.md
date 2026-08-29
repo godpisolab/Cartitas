@@ -4,7 +4,7 @@ Basado en la revisión del código real del repositorio (`base_script.py` + `scr
 
 ---
 
-## A. Cumplimiento de estándares de scraping (documento `estandares-api-app-tcg.md` / sección "Estándares y buenas prácticas")
+## A. Cumplimiento de estándares de scraping (documento `docs/api/estandares.md` / sección "Estándares y buenas prácticas")
 
 ### A.1. User-Agent identificable
 
@@ -145,7 +145,7 @@ Accesorios
 
 `Lote de cartas` y `Otros` quedan **fuera de la jerarquía de categorías comparables** — ver D.3.
 
-**Hecho (2026-08-27, `docs/implementacion-auto-confirmado-setcode.md` 1.3/1.4):** el árbol de arriba quedó desactualizado -- son 14 tipos, no 13. `Booster Case` se añadió como hijo de `Sellado` (antes "Case" se quedaba sin categoría, atascado en `needs_review`). `Promo Card` se movió de hijo de `Sellado` a hijo de un padre nuevo `Single Card` (junto a `Sellado`/`Accesorios`) -- una carta individual no es "producto sellado" en el mismo sentido que una caja/sobre. Ver `seed-catalog-app-tcg.sql` para el árbol real actual.
+**Hecho (2026-08-27, `docs/matching/motor-matching.md` 1.3/1.4):** el árbol de arriba quedó desactualizado -- son 14 tipos, no 13. `Booster Case` se añadió como hijo de `Sellado` (antes "Case" se quedaba sin categoría, atascado en `needs_review`). `Promo Card` se movió de hijo de `Sellado` a hijo de un padre nuevo `Single Card` (junto a `Sellado`/`Accesorios`) -- una carta individual no es "producto sellado" en el mismo sentido que una caja/sobre. Ver `seed-catalog-app-tcg.sql` para el árbol real actual.
 
 ### D.3. Nuevo valor en `match_status_enum`: `not_applicable`
 

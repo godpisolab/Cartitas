@@ -1,6 +1,6 @@
 # Guía de implementación — Frontend
 
-Aplica los mismos principios de `estandares_organizacion_codigo.md` y `estandares-implementacion-api.md` a las dos piezas de frontend decididas en `frontend-arquitectura-decidida.md`: sitio público (Astro) y panel de gestor (dentro de `api/`). No repite las decisiones de arquitectura ya tomadas — esto es el **cómo se organiza el código** que las implementa.
+Aplica los mismos principios de `docs/estandares/organizacion-codigo.md` y `docs/api/estandares-implementacion.md` a las dos piezas de frontend decididas en `docs/frontend/arquitectura-decidida.md`: sitio público (Astro) y panel de gestor (dentro de `api/`). No repite las decisiones de arquitectura ya tomadas — esto es el **cómo se organiza el código** que las implementa.
 
 ---
 
@@ -50,7 +50,7 @@ web/
 
 Esta separación física (no solo una convención de nombres) hace verificable de un vistazo cuánto JavaScript envía cada página — si `islands/` empieza a crecer más de lo esperado, es una señal visible de que se está perdiendo el motivo por el que se eligió Astro.
 
-**Decisión de librería de UI para `islands/`** — deliberadamente diferida (`frontend-arquitectura-decidida.md` sección 6). Al construir la primera isla real, evaluar si hace falta React/Svelte de verdad o si Alpine.js (sin build step, pensado para exactamente este tamaño de interactividad) basta — no asumir React por defecto solo porque es lo más común.
+**Decisión de librería de UI para `islands/`** — deliberadamente diferida (`docs/frontend/arquitectura-decidida.md` sección 6). Al construir la primera isla real, evaluar si hace falta React/Svelte de verdad o si Alpine.js (sin build step, pensado para exactamente este tamaño de interactividad) basta — no asumir React por defecto solo porque es lo más común.
 
 ### 1.4 El patrón BFF, en código
 
@@ -98,7 +98,7 @@ export const getProduct = (id: number) => get(`/products/${id}`);
 export const getRestockEvents = (params?: URLSearchParams) => get(`/restock-events?${params ?? ""}`);
 ```
 
-Como esto se ejecuta en el servidor durante SSR/SSG (nunca en el navegador), usar la key real aquí es seguro — es exactamente lo que hace que la key deje de estar expuesta (`frontend-arquitectura-decidida.md` sección 2.1).
+Como esto se ejecuta en el servidor durante SSR/SSG (nunca en el navegador), usar la key real aquí es seguro — es exactamente lo que hace que la key deje de estar expuesta (`docs/frontend/arquitectura-decidida.md` sección 2.1).
 
 Las páginas (`src/pages/productos/[id].astro`) importan de aquí, nunca hacen `fetch()` directo a la API:
 
@@ -116,7 +116,7 @@ const product = await getProduct(Astro.params.id);
 
 ### 1.7 Caché/revalidación
 
-Cada página declara su propia estrategia según la tabla de `frontend-arquitectura-decidida.md` sección 2.2 — en Astro, esto se expresa por página (`export const prerender = true/false`, más configuración del adaptador de hosting para la revalidación periódica). No hay un ajuste global único; se decide fichero por fichero según qué contenido sirve.
+Cada página declara su propia estrategia según la tabla de `docs/frontend/arquitectura-decidida.md` sección 2.2 — en Astro, esto se expresa por página (`export const prerender = true/false`, más configuración del adaptador de hosting para la revalidación periódica). No hay un ajuste global único; se decide fichero por fichero según qué contenido sirve.
 
 ### 1.8 Testing
 
@@ -160,7 +160,7 @@ api/
 
 ### 2.2 `admin/auth.py` — HTTP Basic, deliberadamente separado de `auth.py`
 
-**No reutilizar `require_scope()`** (Bearer + scopes, pensado para aplicaciones cliente) para el panel — son dos mecanismos de auth distintos a propósito (`frontend-arquitectura-decidida.md` sección 3, el paralelismo con Stripe: API keys para aplicaciones, login para personas). Mezclarlos en el mismo fichero invitaría a confundir cuál usar donde.
+**No reutilizar `require_scope()`** (Bearer + scopes, pensado para aplicaciones cliente) para el panel — son dos mecanismos de auth distintos a propósito (`docs/frontend/arquitectura-decidida.md` sección 3, el paralelismo con Stripe: API keys para aplicaciones, login para personas). Mezclarlos en el mismo fichero invitaría a confundir cuál usar donde.
 
 ```python
 # admin/auth.py
@@ -198,7 +198,7 @@ def confirm_match(id: int, product_id: int = Form(...), session: Session = Depen
     return templates.TemplateResponse("matches/_row.html", {"request": request, "item": updated})
 ```
 
-Es la misma relación entre `routers/` y `services/` ya establecida en `estandares-implementacion-api.md` sección 2 — `admin/routes/` es, en la práctica, un segundo "router" que devuelve HTML en vez de JSON, sobre exactamente la misma capa de lógica.
+Es la misma relación entre `routers/` y `services/` ya establecida en `docs/api/estandares-implementacion.md` sección 2 — `admin/routes/` es, en la práctica, un segundo "router" que devuelve HTML en vez de JSON, sobre exactamente la misma capa de lógica.
 
 ### 2.4 Patrón htmx: la respuesta es un fragmento, no una página completa
 
@@ -220,7 +220,7 @@ Al confirmar, htmx reemplaza solo esa fila (`hx-target="closest tr"`) con lo que
 
 ### 2.5 IP allowlist — fuera del código de `api/`
 
-Vive en la configuración del reverse proxy (nginx/Caddy) delante de `/admin/*`, no en FastAPI — es una decisión de despliegue, deliberadamente diferida (`frontend-arquitectura-decidida.md` sección 6). No añadir un middleware de IP a mano en `api/` mientras no exista ese reverse proxy: comprobar `request.client.host` sin más da falsos positivos/negativos en cuanto haya cualquier proxy intermedio (no ve la IP real sin `X-Forwarded-For` bien configurado) — mejor no fingir una protección que no es fiable hasta que el reverse proxy real esté decidido.
+Vive en la configuración del reverse proxy (nginx/Caddy) delante de `/admin/*`, no en FastAPI — es una decisión de despliegue, deliberadamente diferida (`docs/frontend/arquitectura-decidida.md` sección 6). No añadir un middleware de IP a mano en `api/` mientras no exista ese reverse proxy: comprobar `request.client.host` sin más da falsos positivos/negativos en cuanto haya cualquier proxy intermedio (no ve la IP real sin `X-Forwarded-For` bien configurado) — mejor no fingir una protección que no es fiable hasta que el reverse proxy real esté decidido.
 
 ### 2.6 Testing
 

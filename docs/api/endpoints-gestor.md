@@ -1,6 +1,6 @@
 # API — Endpoints del gestor (panel de revisión / administración)
 
-Documento separado de `api-endpoints-v1.md` a propósito: son dos audiencias distintas con dos API keys distintas (ver `api-endpoints-v1.md` sección 0 — cliente "Panel de revisión"). Todo lo de aquí requiere esa key; nada de este documento es alcanzable desde el frontend público.
+Documento separado de `docs/api/endpoints-v1.md` a propósito: son dos audiencias distintas con dos API keys distintas (ver `docs/api/endpoints-v1.md` sección 0 — cliente "Panel de revisión"). Todo lo de aquí requiere esa key; nada de este documento es alcanzable desde el frontend público.
 
 Cubre las tres áreas de trabajo del gestor: **matching** (la cola de revisión + sus herramientas), **administración de productos canónicos**, y **administración de tiendas**. Incluye dos piezas que ya existían como función de Python (`matcher.find_missing_canonical_candidates()`, `dispatcher.query_store()`) escritas con la intención explícita de tener un endpoint algún día, y que hasta ahora no lo tenían.
 
@@ -14,9 +14,9 @@ Una sola key, un solo scope amplio de administración (`admin:*`) — no hay dis
 
 ## 1. Matching
 
-### `GET /matches` *(renombrado, decidido y ya aplicado en `api-endpoints-v1.md`)*
+### `GET /matches` *(renombrado, decidido y ya aplicado en `docs/api/endpoints-v1.md`)*
 
-Antes `/matches/pending` — renombrado porque el endpoint también devuelve `status=confirmed` (una cola de "pendientes" no debería poder listar lo ya resuelto). Mismos query params y misma forma de respuesta que en `api-endpoints-v1.md` sección 6, con una adición:
+Antes `/matches/pending` — renombrado porque el endpoint también devuelve `status=confirmed` (una cola de "pendientes" no debería poder listar lo ya resuelto). Mismos query params y misma forma de respuesta que en `docs/api/endpoints-v1.md` sección 6, con una adición:
 
 | Parámetro | Tipo | Default | Novedad |
 |---|---|---|---|
@@ -38,7 +38,7 @@ Cuando `status=confirmed`, el campo `candidates` de la respuesta viene vacío (n
 
 ### `POST /matches/{storeProductId}/confirm`, `POST /matches/{storeProductId}/reject`
 
-Sin cambios respecto a `api-endpoints-v1.md` — se listan aquí solo para que este documento sea el punto de entrada completo del gestor a la sección de matching, sin tener que saltar entre los dos ficheros.
+Sin cambios respecto a `docs/api/endpoints-v1.md` — se listan aquí solo para que este documento sea el punto de entrada completo del gestor a la sección de matching, sin tener que saltar entre los dos ficheros.
 
 ### `POST /matches/{storeProductId}/reopen` *(nuevo)*
 
@@ -74,7 +74,7 @@ Es el input natural de `POST /products` (sección 2) — el panel puede mostrar 
 
 ### `POST /products`
 
-Sin cambios respecto a `api-endpoints-v1.md`.
+Sin cambios respecto a `docs/api/endpoints-v1.md`.
 
 ### `PATCH /products/{id}` *(nuevo)*
 
@@ -95,7 +95,7 @@ No incluye `categoryId`/`gameId`/`setCode` como editables en v1 — cambiar la c
 
 ### `GET /stores/{id}`
 
-Sin cambios respecto a `api-endpoints-v1.md` — ya incluía los campos dinámicos de scraping (`lastScrapedAt`, `crawlDelaySeconds`, `disallowed`, `consecutiveFailures`, `backoffUntil`).
+Sin cambios respecto a `docs/api/endpoints-v1.md` — ya incluía los campos dinámicos de scraping (`lastScrapedAt`, `crawlDelaySeconds`, `disallowed`, `consecutiveFailures`, `backoffUntil`).
 
 ### `PATCH /stores/{id}` *(nuevo)*
 
@@ -138,7 +138,7 @@ Este endpoint **no** persiste el resultado en `store_product`/`price_history` �
 3. ~~Cablear `store.active` en `dispatcher.run_all_stores()`~~ — hecho (2026-08-27, elegida la opción 1 de la alerta de arriba): una tienda con `active = false` se salta igual que una en backoff, antes de lanzar el `ThreadPoolExecutor`. Ver `store_monitor/README.md` y `store_monitor/tests/test_dispatcher.py::TestStoreActive`.
 
 **Aplazado explícitamente (no resuelto):**
-4. `POST /stores/{id}/scrape` -- ninguno de los dos documentos resolvía CÓMO `api/` (sin las dependencias de scraping, ver `estandares-implementacion-api.md` sección 1) puede invocar `dispatcher.query_store()` de `store_monitor/` sin volver a mezclar los dos servicios. Decidido (2026-08-27) aplazar este endpoint concreto como su propia tarea de diseño en vez de forzar una solución -- el resto de esta sección (matching, `PATCH`/`POST` de productos y tiendas) sí está implementado.
+4. `POST /stores/{id}/scrape` -- ninguno de los dos documentos resolvía CÓMO `api/` (sin las dependencias de scraping, ver `docs/api/estandares-implementacion.md` sección 1) puede invocar `dispatcher.query_store()` de `store_monitor/` sin volver a mezclar los dos servicios. Decidido (2026-08-27) aplazar este endpoint concreto como su propia tarea de diseño en vez de forzar una solución -- el resto de esta sección (matching, `PATCH`/`POST` de productos y tiendas) sí está implementado.
 
 ## Siguiente paso natural
 

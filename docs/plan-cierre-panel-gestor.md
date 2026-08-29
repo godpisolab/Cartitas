@@ -8,9 +8,9 @@ Todo lo que falta para dar por terminada esta fase, en el orden en que tiene sen
 
 El panel de gestor se da por cerrado cuando:
 
-1. Las tres áreas de `api-endpoints-gestor.md` (matching, productos, tiendas) tienen página HTML equivalente a su endpoint JSON ya construido.
+1. Las tres áreas de `docs/api/endpoints-gestor.md` (matching, productos, tiendas) tienen página HTML equivalente a su endpoint JSON ya construido.
 2. Cada acción de escritura tiene su test con credenciales válidas, sin credenciales, y con `ADMIN_USERNAME`/`ADMIN_PASSWORD` sin configurar (patrón fijado en `2857e44`, ver sección 3.1).
-3. `docs/frontend-arquitectura-decidida.md` tiene una entrada final marcando la fase como cerrada, con lo que quedó fuera y por qué (igual que ya se hizo con el primer commit del panel).
+3. `docs/frontend/arquitectura-decidida.md` tiene una entrada final marcando la fase como cerrada, con lo que quedó fuera y por qué (igual que ya se hizo con el primer commit del panel).
 
 `POST /stores/{id}/scrape` **no** forma parte de esta definición de "terminado" — se deja fuera a propósito (sección 1.6).
 
@@ -157,7 +157,7 @@ Ya verificado que `Jinja2Templates` de FastAPI lo activa por defecto para `.html
 
 - [x] 1.1 a 1.5 implementados, cada uno con sus tests de la sección correspondiente.
 - [x] Cada acción de escritura nueva tiene su test de "admin sin configurar → 401" (2.3).
-- [x] `docs/frontend-arquitectura-decidida.md` actualizado con una entrada final de cierre de fase, listando explícitamente que `POST /stores/{id}/scrape` queda fuera y por qué (1.6) — para que no se lea como un olvido dentro de unos meses.
+- [x] `docs/frontend/arquitectura-decidida.md` actualizado con una entrada final de cierre de fase, listando explícitamente que `POST /stores/{id}/scrape` queda fuera y por qué (1.6) — para que no se lea como un olvido dentro de unos meses.
 - [x] `api/README.md` actualizado con el recuento final de rutas de `admin/` y el número de tests, mismo formato que ya se usa ahí.
 - [x] Suite completa de `api/` corrida contra Postgres real antes de dar la fase por cerrada — no basta con que cada test pase aislado.
 

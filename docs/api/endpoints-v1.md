@@ -1,6 +1,6 @@
 # Endpoints v1 — API completa (fusión)
 
-Fusiona la cobertura completa del primer borrador (productos, ofertas, tiendas, catálogo de filtros, suscripciones, panel de revisión) con el nivel de detalle de payload/respuesta y las alertas de diseño encontradas al especificarlo. Convención de nombres: **`camelCase`** en todo el JSON (cuerpos y query params), consistente con `estandares-api-app-tcg.md` sección 5 — el borrador anterior usaba `snake_case`, corregido aquí.
+Fusiona la cobertura completa del primer borrador (productos, ofertas, tiendas, catálogo de filtros, suscripciones, panel de revisión) con el nivel de detalle de payload/respuesta y las alertas de diseño encontradas al especificarlo. Convención de nombres: **`camelCase`** en todo el JSON (cuerpos y query params), consistente con `docs/api/estandares.md` sección 5 — el borrador anterior usaba `snake_case`, corregido aquí.
 
 > **Notación de este documento:** los bloques marcados `⚠️ ALERTA DE DISEÑO` son cosas que encontré al bajar al detalle y que no estaban resueltas en ninguno de los dos borradores anteriores — necesitan tu confirmación antes de implementarse, no son decisiones que haya tomado por mi cuenta.
 
@@ -18,7 +18,7 @@ Toda petición — lectura o escritura — requiere `Authorization: Bearer <apiK
 
 API key estática por cliente, sin expiración ni flujo de login — lo mínimo que cumple "todo autenticado". Rotación/expiración quedan como mejora futura sin romper el diseño (un endpoint de emisión de tokens se puede añadir después sin tocar esto).
 
-Errores de auth: `401` (falta la cabecera o la key no existe), `403` (key válida pero sin el scope necesario para esa acción) — según la tabla ya fijada en `estandares-api-app-tcg.md`.
+Errores de auth: `401` (falta la cabecera o la key no existe), `403` (key válida pero sin el scope necesario para esa acción) — según la tabla ya fijada en `docs/api/estandares.md`.
 
 ---
 
@@ -281,7 +281,7 @@ Lista las suscripciones activas de un dispositivo, identificado por su `pushEndp
 
 ### `GET /matches`
 
-**Renombrado (2026-08-27):** antes `/matches/pending` — dejó de tener sentido en cuanto el endpoint también puede devolver `status=confirmed` (una cola de "pendientes" no debería poder listar lo ya resuelto). Ver `api-endpoints-gestor.md` sección 1 para el uso de `status=confirmed` (auditar matches ya confirmados) y las herramientas adicionales de esa cola (`reopen`, `missing-candidates`).
+**Renombrado (2026-08-27):** antes `/matches/pending` — dejó de tener sentido en cuanto el endpoint también puede devolver `status=confirmed` (una cola de "pendientes" no debería poder listar lo ya resuelto). Ver `docs/api/endpoints-gestor.md` sección 1 para el uso de `status=confirmed` (auditar matches ya confirmados) y las herramientas adicionales de esa cola (`reopen`, `missing-candidates`).
 
 **Query params:**
 
@@ -373,7 +373,7 @@ Crea un producto canónico a mano — para sembrar un set recién lanzado, o cua
 
 ## Resumen de cobertura
 
-Cada funcionalidad del núcleo del diseño funcional (buscador, ficha, comparación, histórico, ranking de ofertas, feed de restocks recientes, alertas de restock) y del panel de revisión tiene endpoint propio, sin endpoints a medida de una pantalla concreta. Los endpoints exclusivos del gestor (matching completo, administración de productos/tiendas) viven en `api-endpoints-gestor.md`, no aquí. Una pieza de esquema nueva que este documento deja pedida y que aún no existe en `schema-postgresql-app-tcg.sql`:
+Cada funcionalidad del núcleo del diseño funcional (buscador, ficha, comparación, histórico, ranking de ofertas, feed de restocks recientes, alertas de restock) y del panel de revisión tiene endpoint propio, sin endpoints a medida de una pantalla concreta. Los endpoints exclusivos del gestor (matching completo, administración de productos/tiendas) viven en `docs/api/endpoints-gestor.md`, no aquí. Una pieza de esquema nueva que este documento deja pedida y que aún no existe en `schema-postgresql-app-tcg.sql`:
 
 1. `store_product.reviewed_at TIMESTAMPTZ NULL` (alerta #2 de la sección de matching).
 
@@ -383,4 +383,4 @@ El resto de endpoints encajan en el esquema ya existente sin cambios.
 
 Con las dos alertas de diseño resueltas por escrito (la de `minSimilarity` es solo una aclaración de dónde consultar, la de `reviewedAt` sí pide una migración pequeña de esquema), esto ya se puede traducir a routers de FastAPI + modelos SQLModel. La migración de `reviewed_at` es además un buen primer caso real para decidir si merece la pena adelantar Alembic, o si sigue entrando dentro de "cambio aditivo trivial" que no necesita la herramienta todavía.
 
-**Hecho (2026-08-27):** todos los endpoints de este documento están implementados en `api/` -- productos (buscador, ficha, histórico, alta/edición de administración), ofertas, feed de restocks recientes, tiendas (lectura + `PATCH` de administración), catálogo de filtros, suscripciones (sin `Idempotency-Key` real, ver `estandares-implementacion-api.md` sección 7), y el panel de matching completo (`GET /matches` con los cuatro valores de `status`, `confirm`/`reject`/`reopen`, `missing-candidates`). `store_product.reviewed_at` ya existe en el esquema (aplicado como `ALTER TABLE` directo, sin Alembic). 140 tests, 99% de cobertura. Lo único NO implementado de la superficie completa (`api-endpoints-v1.md` + `api-endpoints-gestor.md`) es `POST /stores/{id}/scrape`, aplazado explícitamente por el puente de dependencias sin resolver hacia `store_monitor/` (ver `api-endpoints-gestor.md`, sección 3).
+**Hecho (2026-08-27):** todos los endpoints de este documento están implementados en `api/` -- productos (buscador, ficha, histórico, alta/edición de administración), ofertas, feed de restocks recientes, tiendas (lectura + `PATCH` de administración), catálogo de filtros, suscripciones (sin `Idempotency-Key` real, ver `docs/api/estandares-implementacion.md` sección 7), y el panel de matching completo (`GET /matches` con los cuatro valores de `status`, `confirm`/`reject`/`reopen`, `missing-candidates`). `store_product.reviewed_at` ya existe en el esquema (aplicado como `ALTER TABLE` directo, sin Alembic). 140 tests, 99% de cobertura. Lo único NO implementado de la superficie completa (`docs/api/endpoints-v1.md` + `docs/api/endpoints-gestor.md`) es `POST /stores/{id}/scrape`, aplazado explícitamente por el puente de dependencias sin resolver hacia `store_monitor/` (ver `docs/api/endpoints-gestor.md`, sección 3).
