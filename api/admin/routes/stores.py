@@ -9,9 +9,12 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 from sqlmodel import Session
 
+import services.jobs as jobs_service
 import services.stores as stores_service
+from admin.routes.jobs import _error_partial
 from admin.templates_env import templates
 from db import get_session
+from errors import ApiError
 from schemas.stores import StorePatch
 
 router = APIRouter()
@@ -39,3 +42,29 @@ def update_store(
 ):
     stores_service.patch_store(session, store_id, StorePatch(sitemap_url=sitemap_url or None, active=active))
     return RedirectResponse(f"/admin/stores/{store_id}", status_code=303)
+
+
+@router.post("/stores/{store_id}/scrape")
+def trigger_store_scrape(
+    request: Request,
+    store_id: int,
+    persist: bool = Form(False),
+    session: Session = Depends(get_session),
+):
+    """Disparo manual de UN scrape puntual (docs/propuestas/
+    propuesta-scraping-manual-panel.md punto 3, ampliado 2026-08-29 con la
+    casilla "Guardar resultados") -- vía el servicio HTTP interno de
+    store_monitor/, nunca importando dispatcher.query_store() aquí
+    directamente. `store.name` es el `label` que usa config.STORES
+    (sync_stores lo escribe tal cual, ver store_monitor/persistence.py).
+
+    persist=False (checkbox sin marcar, por defecto): solo diagnóstico --
+    nada se escribe en store_product/price_history, pero el resultado se ve
+    igual en el fragmento de abajo (jobs/_run.html) una vez termina."""
+    store = stores_service.get_store(session, store_id)
+    try:
+        run_id = jobs_service.trigger_store_scrape(store.name, persist=persist)
+        run = jobs_service.get_run(run_id)
+    except ApiError as e:
+        return _error_partial(request, e)
+    return templates.TemplateResponse(request, "jobs/_run.html", {"run": run})

@@ -164,6 +164,7 @@ def _candidates_for(
 def _to_item(store_product: StoreProduct, store: Store, candidates: list[MatchCandidate]) -> MatchItem:
     return MatchItem(
         store_product_id=store_product.id, store=StoreRef(id=store.id, name=store.name),
+        store_url=store_product.store_url,
         raw_name=store_product.raw_name, raw_variant=store_product.raw_variant,
         current_price=store_product.current_price, stock_status=store_product.stock_status,
         match_status=store_product.match_status, reviewed_at=store_product.reviewed_at,

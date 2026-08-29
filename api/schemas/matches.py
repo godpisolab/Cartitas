@@ -49,6 +49,7 @@ class MatchCandidate(CamelModel):
 class MatchItem(CamelModel):
     store_product_id: int
     store: StoreRef
+    store_url: str
     raw_name: str
     raw_variant: str | None
     current_price: float | None

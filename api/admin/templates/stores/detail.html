@@ -21,4 +21,14 @@
     </label>
     <button type="submit">Guardar</button>
   </form>
+
+  <h3>Scraping manual</h3>
+  <form hx-post="/admin/stores/{{ store.id }}/scrape" hx-target="#store-run" hx-swap="innerHTML">
+    <label>
+      <input type="checkbox" name="persist" value="true">
+      Guardar resultados (actualiza precio/stock y entra en la cola de matching)
+    </label>
+    <button type="submit">Lanzar scrape ahora</button>
+  </form>
+  <div id="store-run"></div>
 {% endblock %}

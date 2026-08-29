@@ -300,6 +300,7 @@ Lista las suscripciones activas de un dispositivo, identificado por su `pushEndp
     {
       "storeProductId": 4821,
       "store": { "id": 12, "name": "Cardzone" },
+      "storeUrl": "https://cardzone.example.com/product/op16-booster-box-en",
       "rawName": "One Piece TCG OP16 Booster Box (EN)",
       "rawVariant": null,
       "currentPrice": 119.90,

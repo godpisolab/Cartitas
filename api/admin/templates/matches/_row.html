@@ -1,5 +1,5 @@
 <tr id="match-{{ item.store_product_id }}">
-  <td>{{ item.store.name }}</td>
+  <td>{{ item.store.name }} <a href="{{ item.store_url }}" target="_blank" rel="noopener">Ver en tienda ↗</a></td>
   <td>
     {{ item.raw_name }}
     {% if item.raw_variant %}<br><small>{{ item.raw_variant }}</small>{% endif %}

@@ -38,3 +38,12 @@ API_KEYS: dict[str, frozenset[str]] = _load_api_keys()
 # defecto real: falla cerrado si no se configura en despliegue.
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+
+# Servicio HTTP interno de store_monitor/ (docs/propuestas/
+# propuesta-scraping-manual-panel.md punto 3) -- expone dispatcher.query_store()
+# y los tres jobs de scheduler.py sin que api/ tenga que importar cloudscraper/
+# pybreaker. JOBS_API_TOKEN solo hace falta si los dos procesos corren en
+# hosts distintos (token compartido); en un único host, la red ya aísla el
+# servicio y esto puede quedar sin definir.
+JOBS_API_URL = os.environ.get("JOBS_API_URL", "http://127.0.0.1:8001")
+JOBS_API_TOKEN = os.environ.get("JOBS_API_TOKEN", "")

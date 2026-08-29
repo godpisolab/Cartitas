@@ -28,6 +28,7 @@ Cuando `status=confirmed`, el campo `candidates` de la respuesta viene vacío (n
 {
   "storeProductId": 4821,
   "store": { "id": 12, "name": "Cardzone" },
+  "storeUrl": "https://cardzone.example.com/product/op16-booster-box-en",
   "rawName": "One Piece TCG OP16 Booster Box (EN)",
   "matchStatus": "confirmed",
   "productId": 301,
@@ -112,21 +113,49 @@ Sin cambios respecto a `docs/api/endpoints-v1.md` — ya incluía los campos din
 
 `sitemapUrl` sí se puede exponer sin cambios adicionales — `sitemap_poller.py` ya lo lee de BBDD tal cual, solo hacía falta una forma de escribirlo que no fuera SQL a mano.
 
-### `POST /stores/{id}/scrape` *(nuevo — expone `dispatcher.query_store()`)*
+### Scraping manual desde el panel *(resuelto 2026-08-29, ver docs/propuestas/propuesta-scraping-manual-panel.md)*
 
-Dispara un scraping puntual de una sola tienda, sin esperar al barrido diario.
+La forma final NO es un endpoint JSON síncrono en esta API pública, sino una
+acción del panel HTML admin (`POST /admin/stores/{id}/scrape`, botón "Lanzar
+scrape ahora" en `GET /admin/stores/{id}`) que llama por HTTP a un servicio
+interno nuevo en `store_monitor/` (`jobs_api.py`, puerto 8001 por defecto,
+`api/services/jobs.py` es el cliente) — así resuelve el "CÓMO" que quedaba
+aplazado: `api/` sigue sin importar nada de `store_monitor/`
+(`cloudscraper`/`pybreaker`), le habla solo por HTTP. Ese mismo servicio
+también expone los tres jobs de `scheduler.py` (barrido diario / refresco de
+calientes / polling de sitemap), disparables a mano desde `GET /admin/jobs`,
+con historial de ejecuciones en la misma página.
 
-**Sin body.**
+**Asíncrono, no bloqueante:** el POST crea una fila `scrape_run` (con su
+propio log de ejecución en fichero, `logs/{run_id}.log` -- reemplaza los
+`print()` sueltos que tenía el scraper) y lanza el scrape en un hilo de
+fondo del proceso de `store_monitor/`, devolviendo `run_id` al momento; el
+panel sondea `GET /admin/jobs/runs/{run_id}` vía htmx (`hx-trigger="every
+2s"`) hasta que `status` deja de ser `running`. Mientras corre, esa misma
+respuesta lleva el progreso: determinado (`storesDone`/`storesTotal`) para
+un barrido completo, y para una tienda suelta una estimación de página
+(`currentPage`/`estimatedTotalPages`, cacheada en
+`store.last_known_page_count` del último scrape real) -- ver
+`docs/propuestas/propuesta-scraping-manual-panel.md` puntos 2 y 4 para el
+razonamiento completo.
 
-**Respuesta `200`:**
-```json
-{ "status": "ok", "productsFound": 34, "elapsedSeconds": 4.2, "error": null }
-```
-`status` es literalmente el de `StoreQueryResult` (`ok` \| `empty` \| `timeout` \| `error` \| `circuit_open`) — se devuelve tal cual, sin reinterpretarlo, tal como ya prevé el propio docstring de `query_store()`.
+**Persistir o no, a elección de quien dispara (ampliación 2026-08-29):**
+`POST /jobs/store/{label}?persist=true|false` en el servicio interno
+(`persist=false` por defecto, checkbox sin marcar en el panel). Con
+`persist=false` es una consulta de solo diagnóstico -- nada se escribe en
+`store_product`/`price_history`, tal como el diseño original de este
+documento ya preveía. Con `persist=true` reutiliza el mismo camino que el
+barrido diario (`persistence.persist_scrape_results` -> notificaciones de
+restock -> `matcher.run_matching`), así que el resultado sí queda guardado y
+entra en la cola de matching.
 
-> **Nota operativa, no una alerta de diseño:** esta petición puede tardar hasta `STORE_TIMEOUT` (90s) en responder si la tienda va lenta — es una llamada HTTP síncrona de larga duración. Para v1 es aceptable (el panel de revisión sois vosotros, no tráfico público), pero el frontend del panel debe mostrar un estado de carga acorde, no asumir que esto responde en milisegundos como el resto de la API.
-
-Este endpoint **no** persiste el resultado en `store_product`/`price_history` — es una consulta puntual de diagnóstico ("¿sigue fallando esta tienda ahora mismo?"), no un barrido que se guarde. Si en el futuro hiciera falta que también persista, sería una decisión aparte (probablemente reutilizando `persistence._save_one_store()` igual que ya hace `refresh_hot_products`).
+**En cualquiera de los dos casos, el resultado se ve:** los productos
+encontrados (nombre, variante, precio, stock, enlace a la tienda) se
+guardan en memoria del proceso (`store_monitor/run_results.py`, no en BBDD
+salvo que `persist=true`) y aparecen en una tabla bajo el run una vez
+termina -- para que un disparo sin persistir sirva de algo más que "sigue
+funcionando o no". Se pierden si el proceso de `store_monitor/` se
+reinicia, aceptable para algo pensado como vista previa desechable.
 
 ---
 
@@ -137,9 +166,10 @@ Este endpoint **no** persiste el resultado en `store_product`/`price_history` �
 2. ~~`store_product.reviewed_at`~~ — hecho (2026-08-27): `ALTER TABLE` directo sobre `schema-postgresql-app-tcg.sql` (columna + comentario), aplicado a `cartitas` y `cartitas_test`. Sin Alembic, como decisión ya tomada para todo el proyecto en esta fase.
 3. ~~Cablear `store.active` en `dispatcher.run_all_stores()`~~ — hecho (2026-08-27, elegida la opción 1 de la alerta de arriba): una tienda con `active = false` se salta igual que una en backoff, antes de lanzar el `ThreadPoolExecutor`. Ver `store_monitor/README.md` y `store_monitor/tests/test_dispatcher.py::TestStoreActive`.
 
-**Aplazado explícitamente (no resuelto):**
-4. `POST /stores/{id}/scrape` -- ninguno de los dos documentos resolvía CÓMO `api/` (sin las dependencias de scraping, ver `docs/api/estandares-implementacion.md` sección 1) puede invocar `dispatcher.query_store()` de `store_monitor/` sin volver a mezclar los dos servicios. Decidido (2026-08-27) aplazar este endpoint concreto como su propia tarea de diseño en vez de forzar una solución -- el resto de esta sección (matching, `PATCH`/`POST` de productos y tiendas) sí está implementado.
+4. ~~`POST /stores/{id}/scrape`~~ — resuelto (2026-08-29, ver docs/propuestas/propuesta-scraping-manual-panel.md): no como endpoint JSON síncrono en esta API, sino como acción del panel HTML admin sobre un servicio HTTP interno nuevo en `store_monitor/` (`jobs_api.py`) -- ver sección de arriba para el diseño final.
 
 ## Siguiente paso natural
 
-**Hecho (2026-08-27):** matching completo (`GET /matches` con los 4 valores de `status`, `confirm`/`reject`/`reopen`, `missing-candidates`), `POST`/`PATCH /products`, y `GET`/`PATCH /stores/{id}` -- en `routers/matches.py`, `routers/products.py` y `routers/stores.py` respectivamente, todos detrás de `Depends(require_scope("admin:*"))` (scope único de administración, tal como pedía la sección 0 -- no se partió en scopes más finos, no hay todavía varias personas con distinto nivel de confianza). Pendiente: `POST /stores/{id}/scrape` (punto 4 de arriba).
+**Hecho (2026-08-27):** matching completo (`GET /matches` con los 4 valores de `status`, `confirm`/`reject`/`reopen`, `missing-candidates`), `POST`/`PATCH /products`, y `GET`/`PATCH /stores/{id}` -- en `routers/matches.py`, `routers/products.py` y `routers/stores.py` respectivamente, todos detrás de `Depends(require_scope("admin:*"))` (scope único de administración, tal como pedía la sección 0 -- no se partió en scopes más finos, no hay todavía varias personas con distinto nivel de confianza).
+
+**Hecho (2026-08-29):** el punto 4 de arriba (scraping manual desde el panel) -- ver esa sección para el diseño final. Nada pendiente de esta lista por ahora.

@@ -8,3 +8,4 @@ htmlcov/
 # Estado runtime del scraper -- no es código, se regenera solo
 store_monitor/multi_tienda_one_piece.csv
 store_monitor/tiendas_fallidas.csv
+store_monitor/logs/

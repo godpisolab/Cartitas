@@ -6,3 +6,5 @@ pybreaker
 psycopg2-binary
 apscheduler
 pywebpush
+fastapi
+uvicorn[standard]

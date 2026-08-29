@@ -2,7 +2,7 @@
 
 Servicio FastAPI + SQLModel, hermano de `store_monitor/` (no un módulo dentro de él -- ver `docs/api/estandares-implementacion.md`, sección 1). Sirve el catálogo/comparación de precios que alimenta el scraper; no escribe en la BBDD que consulta salvo en los endpoints de escritura explícitos (matching, suscripciones, administración).
 
-Estado actual: toda la superficie de `docs/api/endpoints-v1.md` + `docs/api/endpoints-gestor.md` implementada, salvo `POST /stores/{id}/scrape` (aplazado explícitamente -- ver "Endpoints pendientes" más abajo). Panel de gestor completo (matching, productos, tiendas) también implementado -- ver "Panel de gestor" más abajo.
+Estado actual: toda la superficie de `docs/api/endpoints-v1.md` + `docs/api/endpoints-gestor.md` implementada. Panel de gestor completo (matching, productos, tiendas, jobs de scraping) también implementado -- ver "Panel de gestor" más abajo.
 
 ## Instalación
 
@@ -21,6 +21,8 @@ Requiere el mismo Postgres que `store_monitor/` (ver `docker_composes/docker-com
 | `DATABASE_URL` | `postgresql://cartitas:cartitas@localhost:5433/cartitas` | Conexión a Postgres |
 | `API_KEYS_JSON` | `{}` (ninguna key válida) | `{"clave": ["read", "write:subscriptions"], ...}` -- API keys estáticas por cliente y sus scopes (ver `docs/api/endpoints-v1.md` sección 0). Los scopes usados hoy: `read`, `write:subscriptions`, `admin:*` (panel de revisión/gestor, un único scope amplio -- ver `docs/api/endpoints-gestor.md` sección 0) |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `""` (ninguna credencial válida) | Credencial de PERSONA para `/admin/*` (HTTP Basic) -- deliberadamente separada de `API_KEYS_JSON`, ver "Panel de gestor" más abajo |
+| `JOBS_API_URL` | `http://127.0.0.1:8001` | Base URL del servicio interno de jobs de `store_monitor/` (`jobs_api.py`) -- ver "Panel de gestor" más abajo |
+| `JOBS_API_TOKEN` | `""` (sin auth propia) | Token compartido con `store_monitor/jobs_api.py`, solo hace falta si los dos procesos corren en hosts distintos |
 
 ## Uso
 
@@ -84,13 +86,9 @@ HTML server-rendered (Jinja2 + htmx en matching, formularios de página completa
 - **Matching** (`admin/routes/matches.py`) -- `GET /admin/matches` (listado con filtro `status` visible), `POST /admin/matches/{id}/confirm|reject|reopen` (htmx, cada uno devuelve el fragmento `_row.html` que se intercambia en la fila; `reject` acepta `mark_as` + `reason` opcional, persistido en `reviewed_reason`), `GET /admin/missing-candidates` (con enlace "Crear canónico" que preellena el alta de producto vía query params).
   **Corregido (2026-08-28):** `GET /admin/matches` no exponía `?page=` ni pasaba `meta` a la plantilla -- con `limit=50` por defecto, cualquier estado con más de 50 filas dejaba el resto invisible sin ninguna forma de llegar a ellas desde el navegador (encontrado en vivo con 187 `needs_review` reales tras el fix de idioma). Ahora acepta `?page=`, y `matches/list.html` muestra Anterior/Siguiente + "Página X de Y" cuando hay más de una página.
 - **Productos** (`admin/routes/products.py`) -- `GET /admin/products` (buscador simple), `GET /admin/products/new` + `POST /admin/products` (alta), `GET /admin/products/{id}/edit` + `POST /admin/products/{id}` (edición). Formulario de página completa compartido entre alta/edición (`products/form.html`); un `409` por nombre duplicado vuelve a mostrar el formulario con lo ya escrito, nunca la página de error genérica de FastAPI.
-- **Tiendas** (`admin/routes/stores.py`) -- `GET /admin/stores` (listado con columna de salud: `lastScrapedAt`, `consecutiveFailures`), `GET /admin/stores/{id}` + `POST /admin/stores/{id}` (detalle + edición de `sitemapUrl`/`active`).
+- **Tiendas** (`admin/routes/stores.py`) -- `GET /admin/stores` (listado con columna de salud: `lastScrapedAt`, `consecutiveFailures`), `GET /admin/stores/{id}` + `POST /admin/stores/{id}` (detalle + edición de `sitemapUrl`/`active`), `POST /admin/stores/{id}/scrape` (botón "Lanzar scrape ahora", checkbox "Guardar resultados" -- ver "Jobs de scraping" más abajo).
+- **Jobs de scraping** (`admin/routes/jobs.py`, decidido 2026-08-29, `docs/propuestas/propuesta-scraping-manual-panel.md`) -- `GET /admin/jobs` (botones para forzar barrido diario/refresco de calientes/polling de sitemap sin esperar al cron, + historial de ejecuciones), `POST /admin/jobs/daily-sweep|hot-refresh|sitemap-poll`, `GET /admin/jobs/runs/{id}` (fragmento sondeado por htmx cada 2s mientras el run sigue `running`, con barra de progreso -- determinada para un barrido completo, estimada por página para una tienda suelta). `services/jobs.py` es el único cliente HTTP hacia el servicio interno `store_monitor/jobs_api.py` -- `api/` sigue sin importar nada de `store_monitor/` directamente (ver `docs/api/estandares-implementacion.md` sección 1). Si ese servicio no responde, las rutas de `admin/` devuelven `200` con un mensaje de error visible en vez de dejar que el handler global de `ApiError` lo convierta en `502` JSON -- htmx no hace swap de respuestas de error por defecto, así que un `502` aquí se vería como "el botón no hace nada" (bug real encontrado 2026-08-29).
 - CSS mínimo sin build step en `admin/static/`; IP allowlist deliberadamente fuera de `api/` (vive en el reverse proxy de despliegue, aún sin decidir).
-- **`POST /stores/{id}/scrape` no forma parte del panel** -- mismo motivo que en "Endpoints pendientes" más abajo.
-
-## Endpoints pendientes
-
-- `POST /stores/{id}/scrape` (`docs/api/endpoints-gestor.md` sección 3) -- expondría `dispatcher.query_store()`, pero `api/` no tiene (a propósito) las dependencias de scraping de `store_monitor/`. Aplazado como su propia tarea de diseño hasta decidir el puente entre los dos servicios (subproceso, cola de trabajos...).
 
 ## Tests
 
@@ -107,12 +105,14 @@ Misma `cartitas_test` que usa `store_monitor/tests/` (mismo contenedor, mismo es
 pytest --cov=. --cov-report=term-missing --cov-config=<(printf '[run]\nomit = tests/*,conftest.py')
 ```
 
-201 tests, 99% de cobertura. Un fichero de test por área funcional, cada uno con una clase de tests de `services/` (integración contra Postgres real, sin mocks de la sesión) y otra de `routers/` (`TestClient` contra la misma BBDD -- auth, `camelCase` de verdad en el JSON, códigos de estado, `problem+json`):
+228 tests. Un fichero de test por área funcional, cada uno con una clase de tests de `services/` (integración contra Postgres real, sin mocks de la sesión) y otra de `routers/` (`TestClient` contra la misma BBDD -- auth, `camelCase` de verdad en el JSON, códigos de estado, `problem+json`):
 
 - `test_products_service.py` / `test_products_router.py` -- búsqueda, ficha, histórico, alta/edición de administración.
 - `test_deals.py`, `test_restock_events.py`, `test_catalog.py`, `test_stores.py`, `test_subscriptions.py`, `test_matches.py`.
 - `test_admin_matches.py` -- panel de matching: HTTP Basic (autenticado/no autenticado/sin configurar), filtro de `status`, listado HTML, ciclo confirmar/rechazar/reabrir devolviendo el fragmento `_row.html`, formulario de rechazo con `reason`, `missing-candidates`.
 - `test_admin_products.py` -- panel de productos: listado/búsqueda, alta con prellenado desde query params, `409` por nombre duplicado sin perder lo escrito, edición (incluido `isHot`/`hotUntil`), 404 sobre producto inexistente.
 - `test_admin_stores.py` -- panel de tiendas: listado con columna de salud, edición de `sitemapUrl`/`active`.
+- `test_admin_jobs.py` -- panel de jobs: disparo de los tres jobs programados + de una tienda suelta (con/sin persistir), historial, barra de progreso (determinada/estimada), tabla de resultados sin persistir, degradación con mensaje visible cuando `jobs_api.py` no responde.
+- `test_jobs_service.py` -- cliente HTTP hacia `store_monitor/jobs_api.py` (`httpx.request` mockeado): mapeo de status code a excepción de dominio (`404` -> `NotFoundError`, conexión fallida/`5xx` -> `BadGatewayError`).
 - `test_auth.py` -- unitario puro, sin BBDD.
 - `test_errors.py` -- un test por tipo de excepción -> código HTTP + forma del `problem+json`, contra una app FastAPI mínima propia (no la real).

@@ -15,6 +15,8 @@ Uso: python base_script.py
 from __future__ import annotations
 
 import csv
+import logging
+from typing import Callable, Optional
 
 import matcher
 import persistence
@@ -75,7 +77,8 @@ def print_summary(products: list[Product]) -> None:
             print(f"    {tienda}: {precio:.2f} €")
 
 
-def main() -> None:
+def main(run_logger: Optional[logging.Logger] = None,
+         on_store_done: Optional[Callable[[str], None]] = None) -> None:
     """Punto de entrada del script: scrapea todas las STORES, escribe los
     CSV de salida, imprime el resumen, y persiste en PostgreSQL (bloque B de
     cambios-necesarios-scraper.md -- store_product/price_history/
@@ -83,8 +86,14 @@ def main() -> None:
     opcional a SQLite, esto ya no es un añadido que se pueda omitir en
     silencio: solo se protege contra un fallo de CONEXIÓN/escritura puntual
     (Postgres caído), no contra que falte la dependencia -- el CSV ya se
-    guardó antes de llegar aquí, así que un fallo de BBDD no lo pierde."""
-    all_products, failed_stores = run_all_stores(STORES)
+    guardó antes de llegar aquí, así que un fallo de BBDD no lo pierde.
+
+    run_logger/on_store_done (docs/propuestas/propuesta-scraping-manual-panel.md
+    puntos 2 y 4): pasados tal cual a run_all_stores() cuando esto se invoca
+    desde scheduler.job_daily_sweep() con un scrape_run asociado -- sin
+    ellos, se comporta igual que siempre (consola, sin seguimiento de
+    progreso)."""
+    all_products, failed_stores = run_all_stores(STORES, run_logger=run_logger, on_store_done=on_store_done)
 
     print(f"\nTotal productos combinados de todas las tiendas: {len(all_products)}")
 

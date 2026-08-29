@@ -19,6 +19,7 @@ también la usan directamente y no deben depender del dispatcher.
 from __future__ import annotations
 
 import email.utils
+import logging
 import random
 import re
 import time
@@ -28,8 +29,17 @@ from typing import Callable, Optional
 import cloudscraper
 import requests
 
+import live_progress
 from config import BROWSER_LIKE_USER_AGENT, IDENTIFIABLE_USER_AGENT
+from run_logging import console_logger
 from shared.domain import StoreConfig
+
+# Progreso de página en vivo (docs/propuestas/propuesta-scraping-manual-panel.md
+# punto 4) -- todos los scrapers YA registran la página que están pidiendo en
+# su mensaje normal ("...página 4...", "...página 3/12...", "...producto
+# 5/23..."), así que se parsea de ahí en vez de tocar cada scraper para que
+# reporte el progreso por un canal aparte.
+_PAGE_PROGRESS_RE = re.compile(r"(?:página|producto)\s+(\d+)(?:/(\d+))?")
 
 DEFAULT_DELAY = 1.0        # pausa entre páginas de una misma tienda
 DEFAULT_TIMEOUT = 30       # timeout de socket por petición HTTP (verificado 2026-08-25:
@@ -56,11 +66,21 @@ class StoreLogger:
     "0 productos" sin explicación, que es indistinguible entre un problema
     real y un catálogo legítimamente vacío."""
 
-    def __init__(self, label: str, activity_tracker: dict[str, float]):
+    def __init__(self, label: str, activity_tracker: dict[str, float],
+                 *, run_logger: Optional[logging.Logger] = None):
         """activity_tracker es compartido con el dispatcher (wait_for_store lo
-        lee para saber cuánto lleva la tienda sin actividad)."""
+        lee para saber cuánto lleva la tienda sin actividad).
+
+        run_logger (docs/propuestas/propuesta-scraping-manual-panel.md punto
+        2): logger de la ejecución en curso (un FileHandler por run_id, ver
+        run_logging.build_run_logger), para que este mensaje quede en
+        logs/{run_id}.log en vez de solo en la terminal. Sin él, cae al
+        logger de consola -- mismo comportamiento que el print() de antes,
+        para no romper los usos sueltos (tests, query_store() sin ejecución
+        asociada)."""
         self.label = label
         self._activity_tracker = activity_tracker
+        self._logger = run_logger or console_logger
         self.last_error: Optional[str] = None
         self.touch()
 
@@ -71,11 +91,17 @@ class StoreLogger:
         self._activity_tracker[self.label] = time.time()
 
     def log(self, message: str) -> None:
-        """Imprime `[label] message`, marca actividad, y si el mensaje
-        empieza por ERROR/AVISO lo recuerda en last_error."""
-        print(f"[{self.label}] {message}")
+        """Registra `message` con label=self.label en el logger de la
+        ejecución (o consola si no hay ninguna asociada), marca actividad, y
+        si el mensaje empieza por ERROR/AVISO lo recuerda en last_error."""
+        self._logger.info(message, extra={"store": self.label})
         if message.startswith(("ERROR", "AVISO")):
             self.last_error = message
+        match = _PAGE_PROGRESS_RE.search(message)
+        if match:
+            page = int(match.group(1))
+            total = int(match.group(2)) if match.group(2) else None
+            live_progress.set_current_page(self.label, page, total)
         self.touch()
 
 

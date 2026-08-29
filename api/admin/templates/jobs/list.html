@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Jobs de scraping — Panel Cartitas{% endblock %}
+{% block content %}
+  <h2>Jobs de scraping</h2>
+  <p>Fuerza un barrido sin esperar a la próxima ejecución programada.</p>
+  {% if error %}<div class="form-error">⚠️ {{ error }}</div>{% endif %}
+
+  <div class="job-buttons">
+    <form hx-post="/admin/jobs/daily-sweep" hx-target="#current-run" hx-swap="innerHTML">
+      <button type="submit">Barrido diario</button>
+    </form>
+    <form hx-post="/admin/jobs/hot-refresh" hx-target="#current-run" hx-swap="innerHTML">
+      <button type="submit">Refresco de calientes</button>
+    </form>
+    <form hx-post="/admin/jobs/sitemap-poll" hx-target="#current-run" hx-swap="innerHTML">
+      <button type="submit">Polling de sitemap</button>
+    </form>
+  </div>
+
+  <div id="current-run"></div>
+
+  <h3>Historial</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th><th>Tipo</th><th>Tienda</th><th>Estado</th><th>Progreso</th><th>Empezado</th><th>Terminado</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}
+        <tr>
+          <td>{{ run.id }}</td>
+          <td>{{ run.job_type }}</td>
+          <td>{{ run.store_label or "—" }}</td>
+          <td>{{ run.status }}</td>
+          <td>{% if run.stores_total %}{{ run.stores_done }} / {{ run.stores_total }}{% else %}—{% endif %}</td>
+          <td>{{ run.started_at }}</td>
+          <td>{{ run.finished_at or "—" }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

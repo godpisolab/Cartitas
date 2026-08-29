@@ -18,6 +18,7 @@ Scraper unificado de precios y stock de **One Piece Card Game** en tiendas onlin
 - [Refresco individual de producto (E.2) y polling de sitemap (E.1)](#refresco-individual-de-producto-e2-y-polling-de-sitemap-e1)
 - [Notificaciones de restock (E.3)](#notificaciones-de-restock-e3)
 - [Orquestación (scheduler.py, E.1)](#orquestación-schedulerpy-e1)
+- [Disparo manual desde el panel y seguimiento de ejecuciones (jobs_api.py)](#disparo-manual-desde-el-panel-y-seguimiento-de-ejecuciones-jobs_apipy)
 - [Tests](#tests)
 - [Limitaciones conocidas](#limitaciones-conocidas)
 - [Estructura de archivos](#estructura-de-archivos)
@@ -28,7 +29,7 @@ Scraper unificado de precios y stock de **One Piece Card Game** en tiendas onlin
 pip install -r requirements.txt
 ```
 
-Dependencias: `requests` (HTTP), `cloudscraper` (bypass de Cloudflare para PrestaShop/WooCommerce/Odoo), `beautifulsoup4` (parseo HTML), `pybreaker` (circuit breaker), `psycopg2-binary` (persistencia en PostgreSQL, ver [Persistencia en PostgreSQL](#persistencia-en-postgresql)).
+Dependencias: `requests` (HTTP), `cloudscraper` (bypass de Cloudflare para PrestaShop/WooCommerce/Odoo), `beautifulsoup4` (parseo HTML), `pybreaker` (circuit breaker), `psycopg2-binary` (persistencia en PostgreSQL, ver [Persistencia en PostgreSQL](#persistencia-en-postgresql)), `fastapi`/`uvicorn` (el servicio interno de jobs, ver [jobs_api.py](#disparo-manual-desde-el-panel-y-seguimiento-de-ejecuciones-jobs_apipy)).
 
 Para levantar Postgres en local (desarrollo):
 
@@ -216,7 +217,7 @@ Ver `docs/scraper/cambios-necesarios.md` (bloque A) para la discusión completa 
 
 ## Consulta puntual de una tienda
 
-Además del batch completo (`main()` / `run_all_stores()`), existe `query_store()` para scrapear **una sola tienda** de forma aislada — pensado como la pieza base de un futuro endpoint ("elige una tienda y consúltala ahora" desde un front):
+Además del batch completo (`main()` / `run_all_stores()`), existe `query_store()` para scrapear **una sola tienda** de forma aislada — es la pieza base del disparo manual desde el panel de gestor ("elige una tienda y consúltala ahora", ver [jobs_api.py](#disparo-manual-desde-el-panel-y-seguimiento-de-ejecuciones-jobs_apipy)):
 
 ```python
 from base_script import find_store, query_store
@@ -348,9 +349,37 @@ python3 scheduler.py
 
 Tres jobs: `barrido_diario` (cron, 1x/día, reutiliza `main()` tal cual), `refresco_calientes` (cada `HOT_REFRESH_INTERVAL_HOURS`, por defecto 3h) y `polling_sitemap` (cada `SITEMAP_POLL_INTERVAL_HOURS`, por defecto 1.5h). Pensado para correr dentro de un proceso supervisado (systemd, Docker con `restart: always`) — se queda en primer plano y no se recupera solo de un crash del propio proceso.
 
+## Disparo manual desde el panel y seguimiento de ejecuciones (`jobs_api.py`)
+
+Decidido 2026-08-29 (`docs/propuestas/propuesta-scraping-manual-panel.md`): el panel de gestor (`api/`) necesitaba poder lanzar un scrape bajo demanda -- por tienda o por tipo de job -- sin que `api/` importara nada de aquí (no tiene `cloudscraper`/`pybreaker`, ver `docs/api/estandares-implementacion.md`). Solución: un servicio HTTP interno propio, en el MISMO proceso que correría `scheduler.py`, al que `api/` habla solo por HTTP.
+
+```bash
+uvicorn jobs_api:app --host 127.0.0.1 --port 8001
+```
+
+Pensado para escuchar SOLO en localhost o la red interna donde vive `api/` -- nunca expuesto públicamente. `JOBS_API_TOKEN` (variable de entorno) es opcional: solo hace falta si `api/` y este servicio corren en hosts distintos.
+
+**Cada ejecución (barrido completo o disparo puntual) es una fila `scrape_run`** (`persistence.create_scrape_run`/`finish_scrape_run`/`increment_scrape_run_progress`), con su propio log de fichero (`logs/{run_id}.log`, `run_logging.py`) que reemplaza los `print()` sueltos que tenía `StoreLogger` -- un `FileHandler` por ejecución, no un único fichero infinito. `POST /jobs/*` es siempre asíncrono: crea la fila y lanza el trabajo en un hilo de fondo (`scheduler.launch_*`), devolviendo `run_id` al momento sin esperar a que termine.
+
+```
+POST /jobs/daily-sweep              -> {"run_id": N}
+POST /jobs/hot-refresh              -> {"run_id": N}
+POST /jobs/sitemap-poll             -> {"run_id": N}
+POST /jobs/store/{label}?persist=   -> {"run_id": N}  -- ver más abajo
+GET  /jobs/runs                     -> historial, más reciente primero
+GET  /jobs/runs/{run_id}            -> status, progreso, resultados (ver abajo)
+GET  /jobs/runs/{run_id}/log        -> últimas N líneas del log de esta ejecución
+```
+
+**Progreso mientras corre** (`GET /jobs/runs/{run_id}`, punto 4 de la propuesta): un barrido completo es determinado desde el primer instante (`stores_done`/`stores_total`, se conoce sin descubrimiento previo). Una tienda suelta no lo es -- casi ninguna plataforma da el total por adelantado sin pagar el coste de una pasada de descubrimiento aparte (duplicaría tiempo/peticiones), así que se usa una estimación cacheada: `store.last_known_page_count`, el último recuento real de páginas de esa tienda, actualizado al final de CUALQUIER scrape (manual o de barrido). Mientras corre, `current_page`/`estimated_total_pages` se leen en vivo de `live_progress.py` (en memoria del proceso, indexado por label de tienda) parseando el número de página que cada scraper YA registra en su mensaje normal ("...página 4...", "...página 3/12..." -- PrestaShop/genérico JSON-LD dan el total real ahí mismo, sin necesitar la caché) — ningún scraper necesitó tocarse para esto.
+
+**Disparo de una tienda suelta, con o sin persistir** (`POST /jobs/store/{label}?persist=true|false`, ampliación 2026-08-29): `persist=false` (por defecto) es solo diagnóstico -- `dispatcher.query_store()` nunca ha escrito en BBDD, así que nada se toca en `store_product`/`price_history`. `persist=true` reutiliza el mismo camino que el barrido diario (`persistence.persist_scrape_results` -> notificaciones de restock -> `matcher.run_matching`), así que el resultado sí queda guardado y entra en la cola de matching. En cualquiera de los dos casos, los productos encontrados quedan en `run_results.py` (en memoria, acotado a las últimas 20 ejecuciones) y aparecen en `results`/`persisted` de `GET /jobs/runs/{run_id}` una vez termina -- para que un disparo sin persistir sirva de algo más que "sigue funcionando o no".
+
+`api/services/jobs.py` es el único cliente HTTP de este servicio; `api/admin/routes/jobs.py` y `.../stores.py` lo consumen desde el panel (`GET /admin/jobs`, botón "Lanzar scrape ahora" en `GET /admin/stores/{id}`), sondeando `GET /admin/jobs/runs/{run_id}` vía htmx cada 2s mientras el estado siga `running`.
+
 ## Tests
 
-434 tests (`pytest`), pirámide invertida a propósito respecto a un proyecto típico: el riesgo real aquí no es "se rompió la lógica de negocio pura" (barata de cubrir con unitarios), sino "una tienda cambió su HTML" o "el SQL no hace lo que creo" -- de ahí el peso en integración con HTTP mockeado y Postgres real, no solo mocks de todo.
+499 tests (`pytest`), pirámide invertida a propósito respecto a un proyecto típico: el riesgo real aquí no es "se rompió la lógica de negocio pura" (barata de cubrir con unitarios), sino "una tienda cambió su HTML" o "el SQL no hace lo que creo" -- de ahí el peso en integración con HTTP mockeado y Postgres real, no solo mocks de todo.
 
 ```bash
 pip install -r requirements-dev.txt
@@ -395,7 +424,12 @@ store_monitor/
 ├── seed_official_catalog.py -- siembra product desde data/one_piece_tcg_products.json
 ├── sitemap_poller.py     -- E.1: descubrimiento temprano vía sitemap.xml
 ├── restock_notifier.py   -- E.3: Web Push + VAPID al detectar restock
-├── scheduler.py          -- E.1: orquestador persistente (APScheduler)
+├── scheduler.py          -- E.1: orquestador persistente (APScheduler) + launch_*/_run_tracked
+│                            para el disparo manual desde el panel
+├── jobs_api.py           -- servicio HTTP interno (disparo manual + seguimiento de scrape_run)
+├── run_logging.py        -- FileHandler por ejecución (logs/{run_id}.log), reemplaza los print() sueltos
+├── live_progress.py      -- progreso de página EN VIVO de una tienda en curso (en memoria, por label)
+├── run_results.py        -- productos de un disparo manual sin persistir (en memoria, para vista previa)
 └── scrapers/
     ├── __init__.py       -- SCRAPER_CLASSES (registro Platform -> clase)
     ├── base.py

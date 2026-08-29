@@ -127,6 +127,8 @@ No se construye en esta ronda. Motivo: `dispatcher.query_store()` vive en `store
 
 Ninguna es gratis, y no hay todavía una necesidad operativa real que la justifique (el barrido diario ya cubre el caso general). Se deja anotado aquí para no perderlo, igual que Alembic o `Idempotency-Key` — se retoma cuando haga falta de verdad, no antes.
 
+> **Retomado y resuelto (2026-08-29):** se eligió la primera opción de la tabla (servicio HTTP interno) — ver `docs/propuestas/propuesta-scraping-manual-panel.md` y `docs/api/endpoints-gestor.md` sección "Scraping manual desde el panel" para el diseño final. La nota de abajo sigue siendo correcta como registro de por qué se dejó fuera de ESTA fase.
+
 ---
 
 ## 2. Guías / lecciones aprendidas a aplicar en todo lo de arriba

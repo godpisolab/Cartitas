@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from admin.auth import verify_admin
+from admin.routes import jobs as admin_jobs
 from admin.routes import matches as admin_matches
 from admin.routes import products as admin_products
 from admin.routes import stores as admin_stores
@@ -52,6 +53,9 @@ app.include_router(
 )
 app.include_router(
     admin_stores.router, prefix="/admin", tags=["admin"], dependencies=[Depends(verify_admin)],
+)
+app.include_router(
+    admin_jobs.router, prefix="/admin", tags=["admin"], dependencies=[Depends(verify_admin)],
 )
 app.mount(
     "/admin/static", StaticFiles(directory=Path(__file__).parent / "admin" / "static"), name="admin-static",

@@ -50,6 +50,15 @@ class UnprocessableEntityError(ApiError):
     title = "Entidad no procesable"
 
 
+class BadGatewayError(ApiError):
+    """El servicio interno de jobs de scraping (store_monitor/jobs_api.py,
+    docs/propuestas/propuesta-scraping-manual-panel.md punto 3) no responde
+    -- api/ actúa de gateway hacia él, así que un fallo de red ahí es un 502
+    (upstream caído), no un 500 de esta API."""
+    status_code = 502
+    title = "Servicio de jobs no disponible"
+
+
 def _problem_response(*, status_code: int, title: str, detail: str | None, instance: str) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,

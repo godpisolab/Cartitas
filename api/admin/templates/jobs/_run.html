@@ -1,0 +1,51 @@
+<div id="run-{{ run.id }}"
+     {% if run.status == "running" %}hx-get="/admin/jobs/runs/{{ run.id }}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  <p>
+    <strong>Run #{{ run.id }}</strong> — {{ run.job_type }}{% if run.store_label %} ({{ run.store_label }}){% endif %}
+    — estado: {{ run.status }}
+  </p>
+  {% if run.stores_total %}
+    <progress value="{{ run.stores_done }}" max="{{ run.stores_total }}"></progress>
+    {{ run.stores_done }} / {{ run.stores_total }} tiendas
+  {% elif run.current_page %}
+    {% if run.estimated_total_pages %}
+      <progress value="{{ run.current_page }}" max="{{ run.estimated_total_pages }}"></progress>
+      Página {{ run.current_page }} de ~{{ run.estimated_total_pages }} (estimado)
+    {% else %}
+      <small>Página {{ run.current_page }}…</small>
+    {% endif %}
+  {% elif run.status == "running" %}
+    <small>en curso…</small>
+  {% endif %}
+  {% if run.status != "running" %}
+    <p><small>Terminado: {{ run.finished_at }}</small></p>
+  {% endif %}
+
+  {% if run.results is defined %}
+    {% if run.persisted %}
+      <p><small>✅ Guardado — precio/stock actualizados, entra en la cola de matching.</small></p>
+    {% else %}
+      <p><small>⚠️ Solo vista previa — nada de esto se ha guardado. Marca "Guardar resultados" para persistirlo.</small></p>
+    {% endif %}
+    {% if run.results %}
+      <table class="matches-table">
+        <thead>
+          <tr><th>Nombre</th><th>Variante</th><th>Precio</th><th>Stock</th><th>URL</th></tr>
+        </thead>
+        <tbody>
+          {% for p in run.results %}
+            <tr>
+              <td>{{ p.name }}</td>
+              <td>{{ p.variant or "—" }}</td>
+              <td>{{ "%.2f"|format(p.price) if p.price is not none else "—" }}</td>
+              <td>{{ p.stock_status }}</td>
+              <td><a href="{{ p.url }}" target="_blank" rel="noopener">ver ↗</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p><small>Sin productos encontrados.</small></p>
+    {% endif %}
+  {% endif %}
+</div>

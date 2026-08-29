@@ -76,7 +76,16 @@ CREATE TABLE store (
     consecutive_failures     INTEGER NOT NULL DEFAULT 0,  -- fallos seguidos ENTRE ejecuciones (A.3) -- ver backoff_until
     backoff_until            TIMESTAMPTZ,
     last_scraped_at          TIMESTAMPTZ,
-    last_sitemap_checked_at  TIMESTAMPTZ
+    last_sitemap_checked_at  TIMESTAMPTZ,
+    -- Última página conocida de un scrape real (manual o programado), NULL
+    -- hasta el primer scrape -- estimación cacheada para la barra de
+    -- progreso de un disparo manual (docs/propuestas/
+    -- propuesta-scraping-manual-panel.md punto 4): la mayoría de
+    -- plataformas no dan el total por adelantado sin pagar el coste de una
+    -- pasada de descubrimiento aparte, así que se usa el último recuento
+    -- real como estimación ("Página 4 de ~15") en vez de descubrirlo cada
+    -- vez.
+    last_known_page_count    INTEGER
 );
 
 -- ============================================================
@@ -196,3 +205,23 @@ CREATE TABLE restock_event (
 );
 
 CREATE INDEX idx_restock_event_product ON restock_event (product_id, detected_at DESC);
+
+-- ============================================================
+-- scrape_run (una fila por ejecución de scraping -- barrido diario,
+-- refresco de calientes, polling de sitemap, o disparo manual de una
+-- tienda desde el panel). Ver docs/propuestas/propuesta-scraping-manual-panel.md
+-- punto 2 -- mismo patrón que delayed_job/Celery para tareas de fondo.
+-- ============================================================
+CREATE TABLE scrape_run (
+    id              SERIAL PRIMARY KEY,
+    job_type        VARCHAR(30) NOT NULL,   -- 'daily_sweep' | 'hot_refresh' | 'sitemap_poll' | 'single_store'
+    store_label     VARCHAR(100),           -- NULL salvo en 'single_store'
+    status          VARCHAR(20) NOT NULL,   -- 'running' | 'completed' | 'failed'
+    started_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at     TIMESTAMPTZ,
+    stores_total    INT,                    -- NULL en 'single_store' (no aplica)
+    stores_done     INT DEFAULT 0,
+    log_file_path   VARCHAR(255) NOT NULL
+);
+
+CREATE INDEX idx_scrape_run_started_at ON scrape_run (started_at DESC);

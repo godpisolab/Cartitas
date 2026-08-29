@@ -70,7 +70,7 @@ def clean_db(request):
     with conn.cursor() as cur:
         cur.execute("""
             TRUNCATE restock_event, restock_subscription, price_history,
-                     store_product, product, category, game, store
+                     store_product, product, category, game, store, scrape_run
             RESTART IDENTITY CASCADE
         """)
     conn.commit()

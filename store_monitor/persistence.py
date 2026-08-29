@@ -376,3 +376,94 @@ def refresh_hot_products(conn, stores: list[StoreConfig]) -> tuple[dict, list[in
 
     print(f"[hot-refresh] {counts}")
     return counts, restock_event_ids
+
+
+# ===========================================================================
+# scrape_run (docs/propuestas/propuesta-scraping-manual-panel.md punto 2) --
+# una fila por ejecución de scraping, consultable por el panel sin tener que
+# parsear el fichero de log. `id` no se conoce hasta después del INSERT, así
+# que log_file_path se rellena con run_logging.log_path(id) en un segundo
+# UPDATE dentro de la misma llamada.
+# ===========================================================================
+
+def create_scrape_run(conn, job_type: str, *, store_label: Optional[str] = None,
+                       stores_total: Optional[int] = None) -> int:
+    """Crea la fila `scrape_run` (status='running') y le asigna su propio
+    log_file_path (logs/{id}.log) -- devuelve el id, que además ES el run_id
+    que nombra el fichero de log (run_logging.build_run_logger)."""
+    from run_logging import log_path
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO scrape_run (job_type, store_label, status, stores_total, log_file_path)
+            VALUES (%s, %s, 'running', %s, '')
+            RETURNING id
+            """,
+            (job_type, store_label, stores_total),
+        )
+        run_id = cur.fetchone()[0]
+        cur.execute(
+            "UPDATE scrape_run SET log_file_path = %s WHERE id = %s",
+            (log_path(run_id), run_id),
+        )
+    conn.commit()
+    return run_id
+
+
+def increment_scrape_run_progress(conn, run_id: int) -> None:
+    """Un store más terminado dentro de esta ejecución -- llamado desde
+    dispatcher.run_all_stores() vía el callback on_store_done, una vez por
+    tienda. Sin efecto en 'single_store' (stores_total es NULL ahí, no hay
+    barra de progreso que alimentar)."""
+    with conn.cursor() as cur:
+        cur.execute("UPDATE scrape_run SET stores_done = stores_done + 1 WHERE id = %s", (run_id,))
+    conn.commit()
+
+
+def finish_scrape_run(conn, run_id: int, status: str) -> None:
+    """status: 'completed' o 'failed' -- fija finished_at = now()."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE scrape_run SET status = %s, finished_at = now() WHERE id = %s",
+            (status, run_id),
+        )
+    conn.commit()
+
+
+def get_scrape_run(conn, run_id: int) -> Optional[dict]:
+    """Fila de scrape_run como dict, o None si no existe -- pensado para que
+    el servicio HTTP interno (punto 3) lo convierta directamente en 404."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT * FROM scrape_run WHERE id = %s", (run_id,))
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def update_store_last_known_page_count(conn, label: str, page_count: int) -> None:
+    """Estimación cacheada para la barra de progreso de un disparo manual
+    (docs/propuestas/propuesta-scraping-manual-panel.md punto 4) --
+    actualizada al final de CUALQUIER scrape real de esta tienda (manual o
+    del barrido programado, ver scheduler._make_tracked_runner). `label` es
+    `store.name` (== StoreConfig.label, ver sync_stores) -- sin efecto si la
+    tienda no existe todavía (primer scrape antes de que sync_stores() haya
+    corrido esta ejecución)."""
+    with conn.cursor() as cur:
+        cur.execute("UPDATE store SET last_known_page_count = %s WHERE name = %s", (page_count, label))
+    conn.commit()
+
+
+def get_store_last_known_page_count(conn, label: str) -> Optional[int]:
+    with conn.cursor() as cur:
+        cur.execute("SELECT last_known_page_count FROM store WHERE name = %s", (label,))
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
+def list_scrape_runs(conn, limit: int = 20) -> list[dict]:
+    """Últimas `limit` ejecuciones, más reciente primero -- alimenta el
+    historial de GET /admin/jobs (punto 3)."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT * FROM scrape_run ORDER BY started_at DESC LIMIT %s", (limit,))
+        rows = cur.fetchall()
+    return [dict(row) for row in rows]

@@ -9,10 +9,11 @@ instanciar por plataforma.
 
 from __future__ import annotations
 
+import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 from urllib.robotparser import RobotFileParser
 
 import pybreaker
@@ -22,6 +23,7 @@ import store_state
 from config import STORES
 from shared.domain import Platform, Product, StoreConfig
 from http_client import DEFAULT_DELAY, DEFAULT_TIMEOUT, StoreLogger, build_session
+from run_logging import console_logger
 from scrapers import SCRAPER_CLASSES
 
 # Tiempo máximo (segundos) SIN NINGUNA actividad (petición enviada o recibida)
@@ -290,14 +292,15 @@ def _get_breaker(label: str) -> pybreaker.CircuitBreaker:
     return _breakers[label]
 
 
-def _attempt_scrape(config: StoreConfig, timeout: int, poll_interval: int) -> StoreQueryResult:
+def _attempt_scrape(config: StoreConfig, timeout: int, poll_interval: int,
+                     run_logger: Optional[logging.Logger] = None) -> StoreQueryResult:
     """Un intento real de scrapear `config`: crea su propio logger/activity_
     tracker/ThreadPoolExecutor de un solo hilo, y lanza _StoreScrapeFailed si
     el resultado cuenta como fallo (para que pybreaker.call() lo registre).
     Es el "trabajo real" que envuelve query_store; no se llama directamente
     desde fuera de este módulo."""
     activity_tracker: dict[str, float] = {config.label: time.time()}
-    logger = StoreLogger(config.label, activity_tracker)
+    logger = StoreLogger(config.label, activity_tracker, run_logger=run_logger)
     started = time.time()
 
     with ThreadPoolExecutor(max_workers=1) as executor:
@@ -318,11 +321,13 @@ def _attempt_scrape(config: StoreConfig, timeout: int, poll_interval: int) -> St
 
 
 def query_store(config: StoreConfig, *, timeout: int = STORE_TIMEOUT,
-                 poll_interval: int = STORE_POLL_INTERVAL, use_breaker: bool = True) -> StoreQueryResult:
-    """Scrapea UNA tienda de forma aislada. Es la pieza que reutilizará una
-    futura consulta puntual desde un front ("elige una tienda y consúltala
-    ahora"): un timeout, una excepción o un selector roto en esa tienda
-    concreta no puede tirar abajo nada más que esta llamada.
+                 poll_interval: int = STORE_POLL_INTERVAL, use_breaker: bool = True,
+                 run_logger: Optional[logging.Logger] = None) -> StoreQueryResult:
+    """Scrapea UNA tienda de forma aislada. Es la pieza que reutiliza la
+    consulta puntual desde el panel ("elige una tienda y consúltala ahora",
+    ver docs/propuestas/propuesta-scraping-manual-panel.md punto 3): un
+    timeout, una excepción o un selector roto en esa tienda concreta no
+    puede tirar abajo nada más que esta llamada.
 
     Con use_breaker=True (por defecto) protege además contra insistir en una
     tienda ya confirmada caída: tras BREAKER_FAIL_MAX fallos seguidos, deja
@@ -330,13 +335,13 @@ def query_store(config: StoreConfig, *, timeout: int = STORE_TIMEOUT,
     "circuit_open"), y lo prueba de nuevo una vez pasado ese tiempo."""
     if not use_breaker:
         try:
-            return _attempt_scrape(config, timeout, poll_interval)
+            return _attempt_scrape(config, timeout, poll_interval, run_logger)
         except _StoreScrapeFailed as e:
             return e.result
 
     breaker = _get_breaker(config.label)
     try:
-        return breaker.call(_attempt_scrape, config, timeout, poll_interval)
+        return breaker.call(_attempt_scrape, config, timeout, poll_interval, run_logger)
     except pybreaker.CircuitBreakerError:
         return StoreQueryResult(
             config.label, config.platform.value, "circuit_open",
@@ -370,7 +375,10 @@ def _record_backoff_outcome(config: StoreConfig, result: "StoreQueryResult") -> 
     store_state.update_state(config.domain, consecutive_failures=failures, backoff_until=backoff_until)
 
 
-def run_all_stores(stores: list[StoreConfig]) -> tuple[list[Product], list[tuple[str, str, str]]]:
+def run_all_stores(stores: list[StoreConfig],
+                    run_logger: Optional[logging.Logger] = None,
+                    on_store_done: Optional[Callable[[str], None]] = None,
+                    ) -> tuple[list[Product], list[tuple[str, str, str]]]:
     """Scrapea TODAS las tiendas en paralelo (un hilo por tienda, todas
     lanzadas a la vez) y devuelve (productos_combinados, tiendas_fallidas).
     Usado por main() para la ejecución batch completa -- a diferencia de
@@ -387,7 +395,16 @@ def run_all_stores(stores: list[StoreConfig]) -> tuple[list[Product], list[tuple
     También respeta `store.active` (API v1, PATCH /stores/{id}): una tienda
     desactivada a mano desde el panel se salta igual que una en backoff --
     antes de esto la columna existía en el esquema pero no tenía ningún
-    efecto real."""
+    efecto real.
+
+    run_logger (docs/propuestas/propuesta-scraping-manual-panel.md punto 2):
+    logger de la ejecución en curso -- si no se pasa, cae al logger de
+    consola (mismo comportamiento que los print() de antes). on_store_done
+    (punto 4): callback opcional invocado justo después de clasificar el
+    resultado de CADA tienda, para que quien orqueste la ejecución (ver
+    scheduler.py) pueda mantener scrape_run.stores_done al día sin tener que
+    adivinarlo del log."""
+    logger = run_logger or console_logger
     activity_tracker: dict[str, float] = {}
     loggers: dict[str, StoreLogger] = {}
     started_at: dict[str, float] = {}
@@ -399,12 +416,13 @@ def run_all_stores(stores: list[StoreConfig]) -> tuple[list[Product], list[tuple
     for config in stores:
         state = store_state.get_state(config.domain)
         if not state.active:
-            print(f"[{config.label}] AVISO: desactivada (store.active = false), se omite")
+            logger.info("AVISO: desactivada (store.active = false), se omite", extra={"store": config.label})
             failed_stores.append((config.label, config.platform.value, "desactivada (store.active = false)"))
             continue
         if state.backoff_until and state.backoff_until > now:
             wait_min = round((state.backoff_until - now) / 60, 1)
-            print(f"[{config.label}] AVISO: en backoff tras fallos repetidos, quedan ~{wait_min} min")
+            logger.info(f"AVISO: en backoff tras fallos repetidos, quedan ~{wait_min} min",
+                        extra={"store": config.label})
             failed_stores.append((config.label, config.platform.value,
                                    f"en backoff tras fallos repetidos (~{wait_min} min restantes, ver A.3)"))
             continue
@@ -414,9 +432,9 @@ def run_all_stores(stores: list[StoreConfig]) -> tuple[list[Product], list[tuple
         futures = {}
         for config in runnable_stores:
             started_at[config.label] = time.time()
-            logger = StoreLogger(config.label, activity_tracker)
-            loggers[config.label] = logger
-            futures[executor.submit(scrape_store, config, logger)] = config
+            store_logger = StoreLogger(config.label, activity_tracker, run_logger=run_logger)
+            loggers[config.label] = store_logger
+            futures[executor.submit(scrape_store, config, store_logger)] = config
 
         for future, config in futures.items():
             result = _build_query_result(config, future, loggers[config.label], activity_tracker,
@@ -425,21 +443,27 @@ def run_all_stores(stores: list[StoreConfig]) -> tuple[list[Product], list[tuple
             _record_backoff_outcome(config, result)
 
             if result.status == "ok":
-                print(f"[{result.label}] OK: {len(result.products)} productos en {result.elapsed_seconds:.1f}s")
+                logger.info(f"OK: {len(result.products)} productos en {result.elapsed_seconds:.1f}s",
+                            extra={"store": result.label})
                 all_products.extend(result.products)
             elif result.status == "empty":
                 motivo = result.error or "sin productos (0 filas)"
-                print(f"[{result.label}] VACÍO en {result.elapsed_seconds:.1f}s: {motivo}")
+                logger.info(f"VACÍO en {result.elapsed_seconds:.1f}s: {motivo}", extra={"store": result.label})
                 failed_stores.append((result.label, result.platform, motivo))
             elif result.status == "timeout":
-                print(f"[{result.label}] TIMEOUT en {result.elapsed_seconds:.1f}s: {result.error}")
+                logger.info(f"TIMEOUT en {result.elapsed_seconds:.1f}s: {result.error}",
+                            extra={"store": result.label})
                 failed_stores.append((result.label, result.platform, result.error))
             else:
-                print(f"[{result.label}] ERROR en {result.elapsed_seconds:.1f}s: {result.error}")
+                logger.info(f"ERROR en {result.elapsed_seconds:.1f}s: {result.error}", extra={"store": result.label})
                 failed_stores.append((result.label, result.platform, f"error: {result.error}"))
 
+            if on_store_done:
+                on_store_done(result.label)
+
     total_elapsed = time.time() - now
-    print(f"\n[run_all_stores] {len(runnable_stores)} tiendas intentadas en {total_elapsed:.1f}s de reloj "
-          f"(en paralelo, un hilo por tienda -- STORE_TIMEOUT={STORE_TIMEOUT}s por tienda)")
+    logger.info(f"{len(runnable_stores)} tiendas intentadas en {total_elapsed:.1f}s de reloj "
+                f"(en paralelo, un hilo por tienda -- STORE_TIMEOUT={STORE_TIMEOUT}s por tienda)",
+                extra={"store": "run_all_stores"})
 
     return all_products, failed_stores

@@ -406,3 +406,77 @@ class TestFiltradoInvalidos:
         with db_conn.cursor() as cur:
             cur.execute("SELECT count(*) FROM store_product")
             assert cur.fetchone()[0] == 0
+
+
+# ===========================================================================
+# scrape_run (docs/propuestas/propuesta-scraping-manual-panel.md punto 2)
+# ===========================================================================
+
+class TestScrapeRun:
+    def test_create_scrape_run_asigna_log_file_path_con_su_propio_id(self, db_conn):
+        run_id = persistence.create_scrape_run(db_conn, "daily_sweep", stores_total=5)
+
+        run = persistence.get_scrape_run(db_conn, run_id)
+        assert run["job_type"] == "daily_sweep"
+        assert run["status"] == "running"
+        assert run["store_label"] is None
+        assert run["stores_total"] == 5
+        assert run["stores_done"] == 0
+        assert run["log_file_path"].endswith(f"{run_id}.log")
+        assert run["finished_at"] is None
+
+    def test_create_scrape_run_single_store_guarda_store_label_sin_total(self, db_conn):
+        run_id = persistence.create_scrape_run(db_conn, "single_store", store_label="Cardzone")
+
+        run = persistence.get_scrape_run(db_conn, run_id)
+        assert run["store_label"] == "Cardzone"
+        assert run["stores_total"] is None
+
+    def test_increment_scrape_run_progress_suma_uno_cada_vez(self, db_conn):
+        run_id = persistence.create_scrape_run(db_conn, "daily_sweep", stores_total=3)
+
+        persistence.increment_scrape_run_progress(db_conn, run_id)
+        persistence.increment_scrape_run_progress(db_conn, run_id)
+
+        assert persistence.get_scrape_run(db_conn, run_id)["stores_done"] == 2
+
+    def test_finish_scrape_run_completed_fija_finished_at(self, db_conn):
+        run_id = persistence.create_scrape_run(db_conn, "sitemap_poll")
+
+        persistence.finish_scrape_run(db_conn, run_id, "completed")
+
+        run = persistence.get_scrape_run(db_conn, run_id)
+        assert run["status"] == "completed"
+        assert run["finished_at"] is not None
+
+    def test_finish_scrape_run_failed(self, db_conn):
+        run_id = persistence.create_scrape_run(db_conn, "hot_refresh")
+
+        persistence.finish_scrape_run(db_conn, run_id, "failed")
+
+        assert persistence.get_scrape_run(db_conn, run_id)["status"] == "failed"
+
+    def test_get_scrape_run_inexistente_devuelve_none(self, db_conn):
+        assert persistence.get_scrape_run(db_conn, 999999) is None
+
+
+class TestLastKnownPageCount:
+    def test_update_y_get(self, db_conn):
+        store_id = list(persistence.sync_stores(db_conn, [make_config(label="Cardzone")]).values())[0]
+        db_conn.commit()
+
+        persistence.update_store_last_known_page_count(db_conn, "Cardzone", 15)
+
+        assert persistence.get_store_last_known_page_count(db_conn, "Cardzone") == 15
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT last_known_page_count FROM store WHERE id = %s", (store_id,))
+            assert cur.fetchone()[0] == 15
+
+    def test_get_sin_dato_previo_devuelve_none(self, db_conn):
+        persistence.sync_stores(db_conn, [make_config(label="TiendaNueva")])
+        db_conn.commit()
+
+        assert persistence.get_store_last_known_page_count(db_conn, "TiendaNueva") is None
+
+    def test_get_tienda_inexistente_devuelve_none(self, db_conn):
+        assert persistence.get_store_last_known_page_count(db_conn, "NoExiste") is None
