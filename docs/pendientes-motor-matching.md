@@ -58,7 +58,7 @@ Además, quedan **29 filas residuales** dentro de `booster-box`/`booster-pack` c
 
 **Hecho (2026-08-28), la parte decidida:** `_JP_VARIANT_CATEGORY_SLUGS` en `seed_official_catalog.py` ampliada a `{"booster-box", "booster-pack", "booster-case", "double-pack", "premium-collection"}`. `starter-deck`/`illustration-box`/`devil-fruits-collection`/`learn-deck` siguen fuera, tal como queda "sin decidir" arriba -- no se tocaron. Las 29 filas residuales y la investigación del fallo de scoring EN/JP siguen sin investigar, fuera de esta ronda.
 
-**Hecho (2026-08-29):** `starter-deck` añadida a `_JP_VARIANT_CATEGORY_SLUGS` (ver decisión más arriba) — 40 canónicos JP nuevos sembrados sobre `cartitas` real (uno por cada Starter Deck EN existente). `illustration-box`/`devil-fruits-collection`/`learn-deck` siguen sin decidir.
+**Hecho (2026-08-28/29, confirmado en dos sesiones de auditoría independientes con la misma evidencia -- ver también `docs/propuesta-mejoras-matching-sesion.md` punto 4):** `starter-deck` añadida a `_JP_VARIANT_CATEGORY_SLUGS` -- 7 ejemplos reales de demanda JP (Pokemillon) confirmaron la señal de volumen que faltaba, 40 canónicos JP nuevos sembrados sobre `cartitas` real (uno por cada Starter Deck EN existente). `illustration-box`/`devil-fruits-collection`/`learn-deck` siguen sin decidir, sin evidencia todavía.
 
 ### 7. Ambigüedad de texto genuina (233→215 filas del análisis, ~14% del total no confirmado) — investigado, no es un problema de categorías
 

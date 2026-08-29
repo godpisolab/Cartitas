@@ -67,13 +67,13 @@ _BOOSTER_LABEL_SWAPS = [
 # variante. booster-case incluida a propósito (una vez sembrados sus
 # canónicos, ver seed_from_catalog más abajo) -- un Case es, en esencia,
 # varias Booster Box del mismo lanzamiento, mismo criterio de demanda JP.
-# starter-deck añadida (2026-08-29, auditoría de needs_review): la señal
-# de demanda real que faltaba en 2026-08-28 -- Pokemillon vende al menos 7
-# Starter Decks japoneses distintos (ST-08, ST-09, ST-11, ST-14, ST-33,
-# ST-34, ST-36) que hoy se quedaban en needs_review sin ningún candidato JP
-# con el que poder coincidir en absoluto (mismo síntoma que ya resolvió
-# esto para Booster Box/Pack). El resto de categorías de Sellado
-# (illustration-box/devil-fruits-collection/learn-deck) se dejan fuera A
+# starter-deck añadida (2026-08-28/29, docs/propuesta-mejoras-matching-sesion.md
+# punto 4 y docs/pendientes-motor-matching.md punto 6 -- decidido en dos
+# sesiones de auditoría independientes con la misma evidencia): 7 ejemplos
+# reales de demanda JP encontrados revisando la cola (ST-08/ST-09/ST-11/
+# ST-14/ST-33/ST-34/ST-36, todos de Pokemillon) -- la señal de volumen que
+# se dejaba como condición para ampliar la lista ya está aquí.
+# illustration-box/devil-fruits-collection/learn-deck siguen fuera A
 # PROPÓSITO, sin confirmación de demanda real todavía -- no es descarte, es
 # "sin decidir" (generar de más no rompe nada, pero tampoco hay señal que
 # lo pida hoy).

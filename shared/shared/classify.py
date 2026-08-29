@@ -148,6 +148,30 @@ _CASE_MULTIPLIER_BY_TYPE = {"BOOSTER_BOX": 12, "PREMIUM_COLLECTION": 10}
 _DON_CARD_RE = re.compile(r"\bdon!!", re.IGNORECASE)
 _SEALED_PRODUCT_CONTEXT_RE = re.compile(r"\bset\b|\bpack\b|\bcaja\b|\bbox\b|\bsobres?\b", re.IGNORECASE)
 
+# 4) DF-NN (Devil Fruits Collection) -- mismo motivo que DP-NN arriba, pero
+# con un problema añadido (2026-08-28, docs/propuesta-mejoras-matching-sesion.md
+# punto 1): DEVIL_FRUITS_COLLECTION solo reconocía la keyword en inglés
+# ("devil fruits collection"), así que "Fruta del Diablo vol.1 [DF-01]"
+# caía en OTROS -- o, peor, en BOOSTER_BOX cuando la tienda tenía "Cajas"
+# como tag genérico de catálogo (raw_tags, mismo problema que
+# _BOOSTER_CASE_RE más abajo). DF es un prefijo exclusivo verificado en
+# las 194 líneas del catálogo oficial completo -- señal tan fiable como el
+# propio set_code, sin depender del idioma del resto del texto.
+_DF_CODE_RE = re.compile(r"\bDF-?0?\d{1,2}\b", re.IGNORECASE)
+
+
+def _match_keyword_type(text: str) -> str:
+    """CLASSIFICATION_RULES a secas, sin ninguno de los fallbacks de abajo
+    -- factorizado para poder comprobar qué tipo daría un texto MÁS
+    ACOTADO (solo name+variant, sin tags) por separado del texto completo,
+    y así distinguir "el tipo vino de una keyword real en el nombre" de
+    "el tipo vino SOLO de las tags" (ver _DF_CODE_RE/_DOUBLE_PACK_CODE_RE
+    más abajo, docs/propuesta-mejoras-matching-sesion.md punto 1)."""
+    for tipo, keywords in CLASSIFICATION_RULES:
+        if any(kw in text for kw in keywords):
+            return tipo
+    return "OTROS"
+
 # Mapea Classification.product_type (CLASSIFICATION_RULES de arriba) a
 # category.slug (D.2 -- los 13 tipos reales, sembrados por
 # seed-catalog-app-tcg.sql). LOTE_CARTAS y OTROS quedan fuera a propósito,
@@ -182,6 +206,32 @@ NOT_APPLICABLE_PRODUCT_TYPES = {"LOTE_CARTAS", "OTROS"}
 # aquí) es la única forma soportada de ampliar esto -- nunca aflojar el
 # patrón a algo genérico otra vez.
 _SET_CODE_PREFIXES = ("OP", "ST", "DP", "EB", "PRB", "DF")
+
+# Rango de códigos ("ST-15 - ST-20", "[ST-31]~[ST-36]") -- 2026-08-28,
+# docs/propuesta-mejoras-matching-sesion.md punto 2, caso real: estos
+# packs promocionales están ligados a TODO un lote de mazos (de ST-15 a
+# ST-20), no a uno solo -- mismo fenómeno que "Tournament Pack" (sin
+# código real), solo que aquí la extracción normal cogía el primer extremo
+# del rango pensando que era el código propio del producto, disparaba el
+# fallback cross-categoría (es_fallback=True) y bloqueaba el
+# auto-confirmado.
+#
+# Reutiliza _SET_CODE_PREFIXES en AMBOS extremos, no [A-Z]{2,3} genérico
+# (la regex original propuesta en el documento lo era, con 0 letras
+# permitidas en el segundo extremo) -- probado contra la suite real: eso
+# colisionaba con la numeración de CARTA INDIVIDUAL ("Rebecca (OP10-058)",
+# "EB02-003") tratando "-058"/"-003" como si fueran el segundo extremo de
+# un rango, perdiendo el set_code real de esos casos ya cubiertos por
+# _DOUBLE_PACK_CODE_RE/_EXTRA_BOOSTER_CODE_RE más arriba. Exigir el mismo
+# tipo de prefijo real en los dos lados evita ese falso positivo sin perder
+# ninguno de los rangos reales vistos (todos con letras a ambos lados).
+# Corchetes opcionales en AMBOS extremos -- la regex del documento solo los
+# preveía en el segundo, no matcheaba "[ST-31]~[ST-36]" completo.
+_RANGO_CODIGOS_RE = re.compile(
+    rf"\[?({'|'.join(_SET_CODE_PREFIXES)})[\s-]?\d{{1,3}}\]?\s*[-~]\s*"
+    rf"\[?({'|'.join(_SET_CODE_PREFIXES)})[\s-]?\d{{1,3}}\]?",
+    re.IGNORECASE,
+)
 
 # BOOSTER_CASE (2026-08-28, docs/pendientes-motor-matching.md punto 2):
 # "case" a secas + contexto de producto sellado en el MISMO texto -- código
@@ -459,19 +509,23 @@ def classify_product(
     # solo entran cuando name+variant solos se quedan en OTROS -- mismo
     # caso que motivó incluirlas en 2026-08-27 (product_type nativo de
     # Shopify vacío en Pokemillon, tags como única señal disponible).
-    product_type = "OTROS"
-    for tipo, keywords in CLASSIFICATION_RULES:
-        if any(kw in name_variant_text for kw in keywords):
-            product_type = tipo
-            break
+    # Reutiliza _match_keyword_type() (docs/propuesta-mejoras-matching-sesion.md
+    # punto 1) -- mismo bucle de CLASSIFICATION_RULES factorizado, ahora
+    # llamado dos veces (name+variant, luego type_search_text) en vez de una.
+    product_type = _match_keyword_type(name_variant_text)
     if product_type == "OTROS":
-        for tipo, keywords in CLASSIFICATION_RULES:
-            if any(kw in type_search_text for kw in keywords):
-                product_type = tipo
-                break
+        product_type = _match_keyword_type(type_search_text)
 
     if product_type == "OTROS" and _BOOSTER_PACK_PLURAL_RE.search(type_search_text):
         product_type = "BOOSTER_PACK"
+    if product_type == "OTROS" and _DF_CODE_RE.search(type_search_text):
+        # Ver _DF_CODE_RE -- código de set exclusivo de Devil Fruits
+        # Collection (docs/propuesta-mejoras-matching-sesion.md punto 1),
+        # señal fiable sin depender de ninguna keyword de tipo en ningún
+        # idioma. Complementa (no sustituye) el keyword "fruta del diablo"
+        # de CLASSIFICATION_RULES -- cubre además el caso sin ninguna
+        # palabra descriptiva en absoluto, solo el código.
+        product_type = "DEVIL_FRUITS_COLLECTION"
     if product_type == "OTROS" and _DOUBLE_PACK_CODE_RE.search(type_search_text):
         # Ver _DON_CARD_RE -- "Don!!" sin contexto de sellado es la carta
         # suelta de regalo, no el Double Pack Set en sí.
@@ -497,6 +551,16 @@ def classify_product(
             product_type = "PROMO_CARD"
         else:
             product_type = "DOUBLE_PACK"
+
+    # NO hay un override tardío equivalente al de DP-NN/PRB-NN de aquí
+    # abajo para DF-NN a propósito -- test_keyword_real_en_el_nombre_sigue_ganando_al_codigo
+    # (docs/propuesta-mejoras-matching-sesion.md punto 1) fija que una
+    # keyword real ya resuelta por name_variant_text (ej. "Booster Box
+    # Something DF-01") debe ganar al código, sin excepción. El chequeo de
+    # _DF_CODE_RE de más arriba (gateado a product_type == "OTROS", tras
+    # agotar name+variant Y tags) ya cubre el caso real observado -- ningún
+    # store_product real visto tiene DF-NN sin "fruta del diablo"/"devil
+    # fruits collection" en el propio nombre.
 
     # Código PRB-NN explícito gana sobre BOOSTER_BOX/BOOSTER_PACK genérico
     # (2026-08-29, auditoría needs_review: "One Piece Tcg Premium2 – PRB-02
@@ -595,34 +659,47 @@ def classify_product(
         #
         # Solo los prefijos de _SET_CODE_PREFIXES (lista blanca real, no
         # "cualquier 2-3 mayúsculas") -- ver el comentario de esa constante.
-        set_match = re.search(rf"\b({'|'.join(_SET_CODE_PREFIXES)})[\s-]?(\d{{1,3}})\b", name, re.IGNORECASE)
-        set_code = f"{set_match.group(1).upper()}{set_match.group(2)}" if set_match else None
-        if set_code is None and product_type == "STARTER_DECK":
-            # Ver _STARTER_DECK_NUM_RE -- código como número suelto tras
-            # "Starter Deck", sin "ST"/"ST-" en el texto (Gameria).
-            starter_match = _STARTER_DECK_NUM_RE.search(name)
-            set_code = f"ST{int(starter_match.group(1)):02d}" if starter_match else None
-            if set_code is None:
-                # Ver _STARTER_DECK_CHARACTER_CODES -- nombrado solo por el
-                # personaje protagonista, sin color ni código (inGenio BCN).
-                set_code = _lookup_code(_normalize_for_lookup(name), _STARTER_DECK_CHARACTER_CODES)
-        if set_code is None and product_type in ("BOOSTER_BOX", "BOOSTER_PACK", "PREMIUM_COLLECTION"):
-            # Ver _RELEASE_TITLE_CODES -- nombrado solo por el título
-            # temático oficial del release, sin código (inGenio BCN, entre
-            # otras).
-            set_code = _lookup_code(_normalize_for_lookup(name), _RELEASE_TITLE_CODES)
-        if set_code is None and product_type == "PREMIUM_COLLECTION":
-            # Fallback a Vol.N -> VOLnn (2026-08-29, auditoría needs_review:
-            # "Premium Card Collection Vol 3/Vol 4", Mulligan) -- a
-            # diferencia de PRB-NN, el catálogo oficial de Bandai NUNCA
-            # asigna código a estas ediciones (data/one_piece_tcg_products.json:
-            # "code": null en las 17 variantes "Premium Card Collection
-            # -X-"), el "Vol.N" del propio nombre es la única señal real.
-            # Mismo VOLnn de salida que ILLUSTRATION_BOX/PLAYMAT para que
-            # matchee contra el canónico (backfill de sus set_code
-            # necesario tras este cambio, ver seed_official_catalog.py).
-            vol_match = _VOLUME_RE.search(name)
-            set_code = f"VOL{int(vol_match.group(1)):02d}" if vol_match else None
+        #
+        # Rango de códigos primero (ver _RANGO_CODIGOS_RE,
+        # docs/propuesta-mejoras-matching-sesion.md punto 2) -- "Sobre
+        # ST-15 - ST-20 Release Event Pack" NO pertenece a un único ST, así
+        # que extraer "ST15" (el primer extremo) sería un código
+        # inventado, no el propio del producto -- se deja en None a
+        # propósito, sin pasar por ninguno de los fallbacks de abajo
+        # tampoco (un rango no tiene ningún código propio que inventar).
+        if _RANGO_CODIGOS_RE.search(name):
+            set_code = None
+        else:
+            set_match = re.search(rf"\b({'|'.join(_SET_CODE_PREFIXES)})[\s-]?(\d{{1,3}})\b", name, re.IGNORECASE)
+            set_code = f"{set_match.group(1).upper()}{set_match.group(2)}" if set_match else None
+            if set_code is None and product_type == "STARTER_DECK":
+                # Ver _STARTER_DECK_NUM_RE -- código como número suelto tras
+                # "Starter Deck", sin "ST"/"ST-" en el texto (Gameria).
+                starter_match = _STARTER_DECK_NUM_RE.search(name)
+                set_code = f"ST{int(starter_match.group(1)):02d}" if starter_match else None
+                if set_code is None:
+                    # Ver _STARTER_DECK_CHARACTER_CODES -- nombrado solo por
+                    # el personaje protagonista, sin color ni código
+                    # (inGenio BCN).
+                    set_code = _lookup_code(_normalize_for_lookup(name), _STARTER_DECK_CHARACTER_CODES)
+            if set_code is None and product_type in ("BOOSTER_BOX", "BOOSTER_PACK", "PREMIUM_COLLECTION"):
+                # Ver _RELEASE_TITLE_CODES -- nombrado solo por el título
+                # temático oficial del release, sin código (inGenio BCN,
+                # entre otras).
+                set_code = _lookup_code(_normalize_for_lookup(name), _RELEASE_TITLE_CODES)
+            if set_code is None and product_type == "PREMIUM_COLLECTION":
+                # Fallback a Vol.N -> VOLnn (2026-08-29, auditoría
+                # needs_review: "Premium Card Collection Vol 3/Vol 4",
+                # Mulligan) -- a diferencia de PRB-NN, el catálogo oficial
+                # de Bandai NUNCA asigna código a estas ediciones
+                # (data/one_piece_tcg_products.json: "code": null en las 17
+                # variantes "Premium Card Collection -X-"), el "Vol.N" del
+                # propio nombre es la única señal real. Mismo VOLnn de
+                # salida que ILLUSTRATION_BOX/PLAYMAT para que matchee
+                # contra el canónico (backfill de sus set_code necesario
+                # tras este cambio, ver seed_official_catalog.py).
+                vol_match = _VOLUME_RE.search(name)
+                set_code = f"VOL{int(vol_match.group(1)):02d}" if vol_match else None
 
     main_set_match = re.search(r"\bOP[\s-]?0*(\d{1,2})\b", name, re.IGNORECASE)
     main_set = f"OP{int(main_set_match.group(1)):02d}" if main_set_match else None

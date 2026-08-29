@@ -167,23 +167,29 @@ class TestSeedFromCatalog:
         ])
         result = soc.seed_from_catalog(db_conn, catalog_path)
 
+        # EN + JP (starter-deck sí está en _JP_VARIANT_CATEGORY_SLUGS,
+        # ver test de abajo), pero ningún Case -- eso es lo que prueba
+        # este test, son cosas independientes.
+        assert len(result["inserted"]) == 2
         assert not any("Case" in name for name in result["inserted"])
 
     def test_starter_deck_ahora_genera_variante_jp(self, db_conn, tmp_path):
-        # 2026-08-29, auditoría needs_review: starter-deck se añadió a
-        # _JP_VARIANT_CATEGORY_SLUGS -- señal de demanda real confirmada
-        # (Pokemillon vendía 7+ Starter Decks japoneses sin ningún
-        # candidato JP posible). Antes de esto solo se sembraba EN.
+        # 2026-08-28/29, docs/propuesta-mejoras-matching-sesion.md punto 4 y
+        # docs/pendientes-motor-matching.md punto 6 (decidido en dos
+        # sesiones de auditoría independientes con la misma evidencia):
+        # starter-deck se añadió a _JP_VARIANT_CATEGORY_SLUGS -- señal de
+        # demanda real confirmada (Pokemillon vendía 7+ Starter Decks
+        # japoneses sin ningún candidato JP posible). Antes de esto solo se
+        # sembraba EN.
         _seed_game_and_categories(db_conn)
         catalog_path = _write_catalog(tmp_path, [
             {"name": "Starter Deck: Straw Hat Crew", "code": "ST-01"},
         ])
         result = soc.seed_from_catalog(db_conn, catalog_path)
         assert len(result["inserted"]) == 2
-        assert result["inserted"] == [
-            "Starter Deck: Straw Hat Crew ST-01 EN",
-            "Starter Deck: Straw Hat Crew ST-01 JP",
-        ]
+        assert set(result["inserted"]) == {
+            "Starter Deck: Straw Hat Crew ST-01 EN", "Starter Deck: Straw Hat Crew ST-01 JP",
+        }
 
     def test_premium_collection_y_double_pack_ahora_generan_variante_jp(self, db_conn, tmp_path):
         # docs/pendientes-motor-matching.md punto 6 (decidido, 2026-08-28):
@@ -231,12 +237,12 @@ class TestSeedFromCatalog:
         result2 = soc.seed_from_catalog(db_conn, catalog_path)
 
         assert result2["inserted"] == []
-        # 2, no 1 -- starter-deck genera EN + JP desde 2026-08-29 (ver
+        # 2, no 1 -- starter-deck genera EN + JP (ver
         # test_starter_deck_ahora_genera_variante_jp).
         assert len(result2["already_existed"]) == 2
         with db_conn.cursor() as cur:
             cur.execute("SELECT count(*) FROM product")
-            assert cur.fetchone()[0] == 2  # no se duplicó
+            assert cur.fetchone()[0] == 2  # no se duplicó ninguna de las dos
 
     def test_idempotente_tambien_para_la_variante_jp(self, db_conn, tmp_path):
         _seed_game_and_categories(db_conn)
