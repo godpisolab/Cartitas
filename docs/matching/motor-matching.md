@@ -1,5 +1,36 @@
 # Motor de matching — consolidado
 
+> **⚠️ SUPERSEDIDO (2026-08-30).** Este documento describe el sistema de
+> clasificación/matching **anterior al Recognition Pipeline**
+> (`CLASSIFICATION_RULES`, `BOOSTER_BOX`/`BOOSTER_PACK`/`BOOSTER_CASE` como
+> categorías separadas, `PREMIUM_COLLECTION` única, `LEARN_DECK` aparte,
+> `_evaluate()` sin Evidence Builder/Decision Policy). Ese diseño fue
+> reemplazado por completo: ver `docs/propuestas/guia_nuevo_matcher.md` (el
+> diseño, con las Correcciones 1-10 acordadas) y el código real en
+> `shared/shared/classify.py`/`store_monitor/matcher.py`. Los cambios
+> principales respecto a todo lo que sigue en este documento:
+>
+> - `BOOSTER_BOX`/`BOOSTER_PACK`/`BOOSTER_CASE` se funden en `ONE_PIECE`,
+>   distinguidas por el campo `Classification.packaging`
+>   (`"sobre"`/`"display"`/`"case"`), no por categoría ni por
+>   `is_box_variant()`/`_BOOSTER_CASE_RE`.
+> - `PREMIUM_COLLECTION` se separa en `PREMIUM_CARD_COLLECTION` y
+>   `PREMIUM_BOOSTER_BOX` (productos distintos, no una variante de
+>   empaquetado del mismo).
+> - `LEARN_DECK` se funde en `STARTER_DECK`. `EXTRA_BOOSTER` y `SLEEVES` son
+>   família nuevas.
+> - `PROMO_CARD`/`MYSTERY_PACK`/`DICE_ACCESSORY` suben a Fase 0 del pipeline
+>   (`not_applicable` siempre, igual que `LOTE_CARTAS`) -- ya no tienen
+>   categoría propia ni entran nunca en `_best_candidate()`.
+> - `_evaluate()` se reestructuró en Evidence Builder (`build_evidence()`) +
+>   Decision Policy (`decide()`), con un camino nuevo de coincidencia EXACTA
+>   de nombre (`exact_name_match`) que no existía en el diseño de abajo.
+>
+> Se conserva el resto del documento tal cual (registro histórico de cómo
+> se llegó hasta el sistema anterior, con sus fechas y commits reales) --
+> no se ha reescrito retroactivamente el `classify.py`/`matcher.py` citados
+> en los fragmentos de código de abajo, que ya no reflejan el código real.
+
 Une los tres documentos de trabajo sobre el motor de matching (`classify.py`/`matcher.py`/`seed_official_catalog.py`), en el orden en que se fueron escribiendo: primero la implementación de base del auto-confirmado por `set_code`, después la sesión de revisión de datos reales que propuso mejoras concretas, y por último la lista viva de pendientes (que incluye la auditoría más reciente, `needs_review` 182→49).
 
 Fusionado el 2026-08-29 a partir de tres ficheros que antes vivían sueltos en `docs/`: `implementacion-auto-confirmado-setcode.md`, `propuesta-mejoras-matching-sesion.md` y `pendientes-motor-matching.md`. Las referencias que tenían los originales a documentos que no existen en el repo se han quitado.

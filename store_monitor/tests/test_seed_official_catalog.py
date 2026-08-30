@@ -1,5 +1,12 @@
-"""Tests de seed_official_catalog.py -- sin cobertura hasta ahora (bloque E,
-construido después del plan de pruebas original)."""
+"""Tests de seed_official_catalog.py.
+
+Taxonomía nueva (Recognition Pipeline): caja/sobre/case ya no son
+categorías separadas (antes booster-box/booster-pack/booster-case) -- viven
+en la MISMA categoría de família (one-piece/extra-booster/
+premium-booster-box), distinguidos por `product.packaging`. Premium
+Collection se separa en premium-card-collection (con variante JP desde
+2026-08-30, demanda real confirmada) y premium-booster-box (PRB-01/02,
+confirmados antes)."""
 
 from __future__ import annotations
 
@@ -49,6 +56,28 @@ class TestToBoxVariant:
         assert soc._to_box_variant("Treasure Boosters Set") is None
 
 
+class TestToDisplayVariant:
+    def test_starter_deck_con_dos_puntos_genera_display(self):
+        assert soc._to_display_variant("Starter Deck: Straw Hat Crew") == "Starter Deck Display: Straw Hat Crew"
+
+    def test_starter_deck_ex_genera_display(self):
+        # Prefijo suelto ("Starter Deck", sin ":") a propósito -- el
+        # catálogo oficial no es uniforme, "Starter Deck EX:" es real.
+        assert soc._to_display_variant("Starter Deck EX: Luffy & Ace") == "Starter Deck Display EX: Luffy & Ace"
+
+    def test_starter_deck_sin_dos_puntos_genera_display(self):
+        # "Starter Deck ONE PIECE FILM edition" -- real, sin ":".
+        assert soc._to_display_variant("Starter Deck ONE PIECE FILM edition") == \
+            "Starter Deck Display ONE PIECE FILM edition"
+
+    def test_double_pack_set_genera_display(self):
+        assert soc._to_display_variant("Double Pack Set Vol.1") == "Double Pack Set Display Vol.1"
+
+    def test_producto_sin_variante_display_conocida_devuelve_none(self):
+        assert soc._to_display_variant("Booster Pack: Romance Dawn") is None
+        assert soc._to_display_variant("Illustration Box Vol.1") is None
+
+
 class TestToCaseVariant:
     def test_booster_pack_genera_booster_box_case_con_multiplicador(self):
         assert soc._to_case_variant("Booster Pack: Romance Dawn", 12) == "Booster Box Case: Romance Dawn (x12)"
@@ -70,8 +99,7 @@ def _write_catalog(tmp_path, products):
 def _seed_game_and_categories(conn):
     with conn.cursor() as cur:
         cur.execute("INSERT INTO game (name, slug) VALUES ('One Piece', 'one-piece')")
-        for slug, name in [("booster-box", "Booster Box"), ("booster-pack", "Booster Pack"),
-                            ("starter-deck", "Starter Deck")]:
+        for slug, name in [("one-piece", "One Piece"), ("starter-deck", "Starter Deck")]:
             cur.execute("INSERT INTO category (name, slug) VALUES (%s, %s)", (name, slug))
     conn.commit()
 
@@ -83,37 +111,16 @@ class TestSeedFromCatalog:
         with pytest.raises(RuntimeError, match="one-piece"):
             soc.seed_from_catalog(db_conn, catalog_path)
 
-    def test_booster_pack_se_siembra_como_caja_y_sobre_cada_uno_en_y_jp(self, db_conn, tmp_path):
-        # 2026-08-27: booster-box/booster-pack están en
-        # _JP_VARIANT_CATEGORY_SLUGS -- cada release se siembra 4 veces
-        # (Pack EN, Pack JP, Box EN, Box JP), no 2.
+    def test_booster_pack_se_siembra_como_sobre_caja_y_case_misma_categoria_en_y_jp(self, db_conn, tmp_path):
+        # one-piece está en _JP_VARIANT_CATEGORY_SLUGS -- cada release se
+        # siembra 6 veces (sobre/caja/case, EN+JP cada uno), todas en la
+        # MISMA categoría 'one-piece', distinguidas por packaging. A
+        # diferencia del sistema anterior, el Case ya no se puede omitir
+        # seleccionando solo sembrar la categoría 'booster-box'/'booster-pack'
+        # sin 'booster-case' -- packaging='case' se genera siempre que la
+        # família tenga multiplicador conocido en _PACKAGING_UNITS (aquí,
+        # ONE_PIECE x12), independientemente de categorías.
         _seed_game_and_categories(db_conn)
-        catalog_path = _write_catalog(tmp_path, [
-            {"name": "Booster Pack: Romance Dawn", "code": "OP-01"},
-        ])
-        result = soc.seed_from_catalog(db_conn, catalog_path)
-
-        assert len(result["inserted"]) == 4
-        with db_conn.cursor() as cur:
-            cur.execute("SELECT name_canonical, language FROM product ORDER BY name_canonical")
-            rows = cur.fetchall()
-        assert rows == [
-            ("Booster Box: Romance Dawn OP-01 EN", "EN"),
-            ("Booster Box: Romance Dawn OP-01 JP", "JP"),
-            ("Booster Pack: Romance Dawn OP-01 EN", "EN"),
-            ("Booster Pack: Romance Dawn OP-01 JP", "JP"),
-        ]
-
-    def test_booster_pack_con_booster_case_sembrado_genera_tambien_el_case_x12(self, db_conn, tmp_path):
-        # docs/pendientes-motor-matching.md punto 3 -- con booster-case
-        # sembrada, cada release booster genera TAMBIÉN su Case (EN+JP,
-        # booster-case está en _JP_VARIANT_CATEGORY_SLUGS) -- 6 insertados,
-        # no 4. Multiplicador x12 para booster-box (verificado en el CSV
-        # real: todos los OP-NN/EB-NN vistos).
-        _seed_game_and_categories(db_conn)
-        with db_conn.cursor() as cur:
-            cur.execute("INSERT INTO category (name, slug) VALUES ('Booster Case', 'booster-case')")
-        db_conn.commit()
         catalog_path = _write_catalog(tmp_path, [
             {"name": "Booster Pack: Romance Dawn", "code": "OP-01"},
         ])
@@ -122,24 +129,26 @@ class TestSeedFromCatalog:
         assert len(result["inserted"]) == 6
         with db_conn.cursor() as cur:
             cur.execute(
-                "SELECT p.name_canonical, p.language, c.slug FROM product p "
-                "JOIN category c ON c.id = p.category_id WHERE p.name_canonical LIKE %s",
-                ("%Case%",),
+                "SELECT p.name_canonical, p.language, p.packaging, c.slug FROM product p "
+                "JOIN category c ON c.id = p.category_id ORDER BY p.name_canonical"
             )
-            rows = dict((name, (language, slug)) for name, language, slug in cur.fetchall())
-        assert rows == {
-            "Booster Box Case: Romance Dawn (x12) OP-01 EN": ("EN", "booster-case"),
-            "Booster Box Case: Romance Dawn (x12) OP-01 JP": ("JP", "booster-case"),
-        }
+            rows = cur.fetchall()
+        assert rows == [
+            ("Booster Box Case: Romance Dawn (x12) OP-01 EN", "EN", "case", "one-piece"),
+            ("Booster Box Case: Romance Dawn (x12) OP-01 JP", "JP", "case", "one-piece"),
+            ("Booster Box: Romance Dawn OP-01 EN", "EN", "display", "one-piece"),
+            ("Booster Box: Romance Dawn OP-01 JP", "JP", "display", "one-piece"),
+            ("Booster Pack: Romance Dawn OP-01 EN", "EN", "sobre", "one-piece"),
+            ("Booster Pack: Romance Dawn OP-01 JP", "JP", "sobre", "one-piece"),
+        ]
 
-    def test_premium_booster_con_booster_case_sembrado_genera_case_x10(self, db_conn, tmp_path):
-        # Multiplicador DISTINTO para premium-collection (x10, verificado
+    def test_premium_booster_genera_case_x10_en_premium_booster_box(self, db_conn, tmp_path):
+        # Multiplicador DISTINTO para premium-booster-box (x10, verificado
         # contra el único PRB-NN real visto en el CSV: "(CASE) THE BEST 2
-        # PRB-02 x10") -- no asume el mismo x12 que booster-box.
+        # PRB-02 x10") -- no asume el mismo x12 que one-piece.
         with db_conn.cursor() as cur:
             cur.execute("INSERT INTO game (name, slug) VALUES ('One Piece', 'one-piece')")
-            for slug, name in [("premium-collection", "Premium Collection"), ("booster-case", "Booster Case")]:
-                cur.execute("INSERT INTO category (name, slug) VALUES (%s, %s)", (name, slug))
+            cur.execute("INSERT INTO category (name, slug) VALUES ('Premium Booster Box', 'premium-booster-box')")
         db_conn.commit()
         catalog_path = _write_catalog(tmp_path, [
             {"name": "Premium Booster: One Piece Card The Best vol.2", "code": "PRB-02"},
@@ -147,59 +156,63 @@ class TestSeedFromCatalog:
         soc.seed_from_catalog(db_conn, catalog_path)
 
         with db_conn.cursor() as cur:
-            cur.execute("SELECT name_canonical FROM product WHERE name_canonical LIKE %s", ("%Case%",))
-            names = {row[0] for row in cur.fetchall()}
-        assert "Premium Booster Box Case: One Piece Card The Best vol.2 (x10) PRB-02 EN" in names
+            cur.execute(
+                "SELECT p.name_canonical, p.packaging, c.slug FROM product p "
+                "JOIN category c ON c.id = p.category_id WHERE p.name_canonical LIKE %s",
+                ("%Case%",),
+            )
+            rows = {name: (packaging, slug) for name, packaging, slug in cur.fetchall()}
+        assert rows.get("Premium Booster Box Case: One Piece Card The Best vol.2 (x10) PRB-02 EN") == \
+            ("case", "premium-booster-box")
 
     def test_starter_deck_no_genera_case_sin_evidencia_real(self, db_conn, tmp_path):
-        # starter-deck no está en _CASE_MULTIPLIER_BY_CATEGORY a propósito
-        # -- ninguna mención real de "Starter Deck Case" en el CSV, no se
-        # inventa un multiplicador sin dato (ver docstring del punto 3).
-        # SÍ genera variante JP desde 2026-08-29 (ver test de abajo) --
-        # ambas cosas son independientes, esto solo comprueba que ningún
-        # "... Case" se cuela entre los insertados.
+        # STARTER_DECK no tiene "case" en _PACKAGING_UNITS a propósito --
+        # ninguna mención real de "Starter Deck Case" en el CSV, no se
+        # inventa un multiplicador sin dato. SÍ genera variante 'display' Y
+        # JP (ver test de abajo) -- comprueba que ningún "... Case" se cuela
+        # entre los insertados.
         _seed_game_and_categories(db_conn)
-        with db_conn.cursor() as cur:
-            cur.execute("INSERT INTO category (name, slug) VALUES ('Booster Case', 'booster-case')")
-        db_conn.commit()
         catalog_path = _write_catalog(tmp_path, [
             {"name": "Starter Deck: Straw Hat Crew", "code": "ST-01"},
         ])
         result = soc.seed_from_catalog(db_conn, catalog_path)
 
-        # EN + JP (starter-deck sí está en _JP_VARIANT_CATEGORY_SLUGS,
-        # ver test de abajo), pero ningún Case -- eso es lo que prueba
-        # este test, son cosas independientes.
-        assert len(result["inserted"]) == 2
+        assert len(result["inserted"]) == 4
         assert not any("Case" in name for name in result["inserted"])
 
-    def test_starter_deck_ahora_genera_variante_jp(self, db_conn, tmp_path):
-        # 2026-08-28/29, docs/propuesta-mejoras-matching-sesion.md punto 4 y
-        # docs/pendientes-motor-matching.md punto 6 (decidido en dos
-        # sesiones de auditoría independientes con la misma evidencia):
-        # starter-deck se añadió a _JP_VARIANT_CATEGORY_SLUGS -- señal de
+    def test_starter_deck_genera_variante_jp_y_display(self, db_conn, tmp_path):
+        # starter-deck está en _JP_VARIANT_CATEGORY_SLUGS -- señal de
         # demanda real confirmada (Pokemillon vendía 7+ Starter Decks
-        # japoneses sin ningún candidato JP posible). Antes de esto solo se
-        # sembraba EN.
+        # japoneses sin ningún candidato JP posible). Variante 'display'
+        # añadida 2026-08-30 -- 9 store_product reales (ej. "... [ST21] x6")
+        # clasificaban packaging='display' sin ningún canónico con el que
+        # confirmar (_PACKAGING_UNITS ya declaraba el multiplicador x6,
+        # pero esta siembra nunca generaba esa fila).
         _seed_game_and_categories(db_conn)
         catalog_path = _write_catalog(tmp_path, [
             {"name": "Starter Deck: Straw Hat Crew", "code": "ST-01"},
         ])
         result = soc.seed_from_catalog(db_conn, catalog_path)
-        assert len(result["inserted"]) == 2
+        assert len(result["inserted"]) == 4
         assert set(result["inserted"]) == {
             "Starter Deck: Straw Hat Crew ST-01 EN", "Starter Deck: Straw Hat Crew ST-01 JP",
+            "Starter Deck Display: Straw Hat Crew ST-01 EN", "Starter Deck Display: Straw Hat Crew ST-01 JP",
         }
 
-    def test_premium_collection_y_double_pack_ahora_generan_variante_jp(self, db_conn, tmp_path):
-        # docs/pendientes-motor-matching.md punto 6 (decidido, 2026-08-28):
-        # _JP_VARIANT_CATEGORY_SLUGS se amplió más allá de booster-box/pack.
-        # Ninguna de las dos tiene box-variant que duplicar (_to_box_variant
-        # solo dobla "Booster/Extra Booster/Premium Booster:") -- EN + JP,
-        # 2 insertados cada una, no 4.
+    def test_double_pack_y_premium_card_collection_generan_ambos_jp(self, db_conn, tmp_path):
+        # double-pack está en _JP_VARIANT_CATEGORY_SLUGS desde el principio
+        # (demanda real confirmada, PRB-01/02); premium-card-collection se
+        # añadió 2026-08-30 -- 13 store_product reales con raw_variant
+        # "Japonés" encontrados en la cola de needs_review. Premium Card
+        # Collection no tiene box-variant que duplicar (_to_box_variant solo
+        # dobla "Booster/Extra Booster/Premium Booster:") -- 2 (Premium Card
+        # Collection EN+JP) + 4 (Double Pack sobre+display, EN+JP cada uno,
+        # ver _to_display_variant) = 6 insertados.
         with db_conn.cursor() as cur:
             cur.execute("INSERT INTO game (name, slug) VALUES ('One Piece', 'one-piece')")
-            for slug, name in [("premium-collection", "Premium Collection"), ("double-pack", "Double Pack")]:
+            for slug, name in [
+                ("premium-card-collection", "Premium Card Collection"), ("double-pack", "Double Pack"),
+            ]:
                 cur.execute("INSERT INTO category (name, slug) VALUES (%s, %s)", (name, slug))
         db_conn.commit()
         catalog_path = _write_catalog(tmp_path, [
@@ -208,11 +221,13 @@ class TestSeedFromCatalog:
         ])
         result = soc.seed_from_catalog(db_conn, catalog_path)
 
-        assert len(result["inserted"]) == 4
+        assert len(result["inserted"]) == 6
         with db_conn.cursor() as cur:
             cur.execute("SELECT name_canonical, language FROM product ORDER BY name_canonical")
             rows = cur.fetchall()
         assert rows == [
+            ("Double Pack Set Display Vol.1 DP-01 EN", "EN"),
+            ("Double Pack Set Display Vol.1 DP-01 JP", "JP"),
             ("Double Pack Set Vol.1 DP-01 EN", "EN"),
             ("Double Pack Set Vol.1 DP-01 JP", "JP"),
             ("Premium Card Collection -25th Edition- EN", "EN"),
@@ -222,7 +237,7 @@ class TestSeedFromCatalog:
     def test_producto_sin_categoria_se_omite(self, db_conn, tmp_path):
         _seed_game_and_categories(db_conn)
         catalog_path = _write_catalog(tmp_path, [
-            {"name": "Official Sleeves 13", "code": None},  # OTROS -- sin categoría en D.2
+            {"name": "Official Storage Box", "code": None},  # OTROS -- accesorio sin família reconocida
         ])
         result = soc.seed_from_catalog(db_conn, catalog_path)
         assert result["inserted"] == []
@@ -237,12 +252,11 @@ class TestSeedFromCatalog:
         result2 = soc.seed_from_catalog(db_conn, catalog_path)
 
         assert result2["inserted"] == []
-        # 2, no 1 -- starter-deck genera EN + JP (ver
-        # test_starter_deck_ahora_genera_variante_jp).
-        assert len(result2["already_existed"]) == 2
+        # 4, no 1 -- starter-deck genera sobre+display, cada uno EN + JP.
+        assert len(result2["already_existed"]) == 4
         with db_conn.cursor() as cur:
             cur.execute("SELECT count(*) FROM product")
-            assert cur.fetchone()[0] == 2  # no se duplicó ninguna de las dos
+            assert cur.fetchone()[0] == 4  # no se duplicó ninguna de las cuatro
 
     def test_idempotente_tambien_para_la_variante_jp(self, db_conn, tmp_path):
         _seed_game_and_categories(db_conn)
@@ -253,7 +267,41 @@ class TestSeedFromCatalog:
         result2 = soc.seed_from_catalog(db_conn, catalog_path)
 
         assert result2["inserted"] == []
-        assert len(result2["already_existed"]) == 4
+        assert len(result2["already_existed"]) == 6
         with db_conn.cursor() as cur:
             cur.execute("SELECT count(*) FROM product")
-            assert cur.fetchone()[0] == 4  # no se duplicó ninguna de las 4 variantes
+            assert cur.fetchone()[0] == 6  # no se duplicó ninguna de las 6 variantes (sobre/caja/case x EN/JP)
+
+    def test_autocorrige_set_code_desfasado_de_una_fila_ya_sembrada(self, db_conn, tmp_path):
+        """Bug real (2026-08-30): "Official Sleeves 16" se sembró con
+        set_code NULL porque en su momento classify_product() no sabía
+        reconocer esta família -- una vez arreglado classify.py, relanzar el
+        seeder debe actualizar la fila existente en vez de dejarla desfasada
+        para siempre (idempotencia por name_canonical la protegía de
+        duplicarse, pero nunca la corregía)."""
+        _seed_game_and_categories(db_conn)
+        with db_conn.cursor() as cur:
+            cur.execute("INSERT INTO category (name, slug) VALUES ('Sleeves', 'sleeves')")
+            cur.execute("SELECT id FROM game WHERE slug = 'one-piece'")
+            game_id = cur.fetchone()[0]
+            cur.execute("SELECT id FROM category WHERE slug = 'sleeves'")
+            category_id = cur.fetchone()[0]
+            # Simula el estado "de antes del fix": insertado a mano con
+            # set_code NULL, tal como habría quedado la siembra vieja.
+            cur.execute(
+                "INSERT INTO product (game_id, category_id, set_code, language, name_canonical) "
+                "VALUES (%s, %s, NULL, 'EN', 'Official Sleeves 16 EN')",
+                (game_id, category_id),
+            )
+        db_conn.commit()
+
+        catalog_path = _write_catalog(tmp_path, [{"name": "Official Sleeves 16", "code": None}])
+        result = soc.seed_from_catalog(db_conn, catalog_path)
+
+        assert result["inserted"] == []
+        assert result["updated"] == ["Official Sleeves 16 EN"]
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT set_code FROM product WHERE name_canonical = 'Official Sleeves 16 EN'")
+            assert cur.fetchone()[0] == "VOL16"
+            cur.execute("SELECT count(*) FROM product")
+            assert cur.fetchone()[0] == 1  # se actualizó la fila, no se insertó una segunda

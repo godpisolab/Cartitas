@@ -12,55 +12,54 @@ INSERT INTO game (name, slug) VALUES
     ('Pokémon', 'pokemon')
 ON CONFLICT (slug) DO NOTHING;
 
--- Jerarquía real (D.2), no los 4-5 de ejemplo del diseño inicial.
--- 'single-card' (implementacion-auto-confirmado-setcode.md 1.4): una carta
--- individual (promo o no) no es "producto sellado" en el mismo sentido que
--- una caja/sobre -- tercer padre junto a Sellado/Accesorios.
+-- Jerarquía real (Recognition Pipeline, docs/propuestas/guia_nuevo_matcher.md):
+-- 10 tipos matcheables, dos padres. Ya no hay padre 'single-card' -- su
+-- único hijo (Promo Card) subió a Fase 0 del pipeline (not_applicable
+-- siempre, ver más abajo), así que se queda sin categoría y el padre sin
+-- hijos no aporta nada.
 INSERT INTO category (name, slug) VALUES
     ('Sellado', 'sellado'),
-    ('Accesorios', 'accesorios'),
-    ('Single Card', 'single-card')
+    ('Accesorios', 'accesorios')
 ON CONFLICT (slug) DO NOTHING;
 
+-- BOOSTER_BOX/BOOSTER_PACK/BOOSTER_CASE (3 categorías separadas antes) se
+-- funden en una sola ('One Piece', slug 'one-piece') -- la distinción
+-- sobre/display/case pasa a ser la columna product.packaging, no la
+-- categoría. Igual para Extra Booster (antes vivía sin categoría propia
+-- dentro de booster-pack/box, vía fallback de código EB) y Premium
+-- Booster Box (antes 'Premium Collection' junto con Premium Card
+-- Collection, ahora son dos productos distintos con categoría propia cada
+-- uno). Learn Deck se funde en Starter Deck (mismo tipo de producto, solo
+-- cambia el nombre de línea). Sleeves es nueva (antes caía en OTROS, sin
+-- categoría).
 INSERT INTO category (parent_category_id, name, slug)
 SELECT (SELECT id FROM category WHERE slug = 'sellado'), name, slug
 FROM (VALUES
-    ('Booster Box', 'booster-box'),
-    ('Booster Pack', 'booster-pack'),
-    ('Booster Case', 'booster-case'),
+    ('One Piece', 'one-piece'),
+    ('Extra Booster', 'extra-booster'),
+    ('Premium Booster Box', 'premium-booster-box'),
+    ('Premium Card Collection', 'premium-card-collection'),
     ('Starter Deck', 'starter-deck'),
     ('Illustration Box', 'illustration-box'),
-    ('Premium Collection', 'premium-collection'),
     ('Double Pack', 'double-pack'),
-    ('Mystery Pack', 'mystery-pack'),
     ('Devil Fruits Collection', 'devil-fruits-collection'),
-    ('Learn Deck', 'learn-deck')
+    ('Sleeves', 'sleeves')
 ) AS t(name, slug)
 ON CONFLICT (slug) DO NOTHING;
 
 INSERT INTO category (parent_category_id, name, slug)
 SELECT (SELECT id FROM category WHERE slug = 'accesorios'), name, slug
 FROM (VALUES
-    ('Playmat', 'playmat'),
-    ('Dice / Accessory', 'dice-accessory')
+    ('Playmat', 'playmat')
 ) AS t(name, slug)
 ON CONFLICT (slug) DO NOTHING;
 
-INSERT INTO category (parent_category_id, name, slug)
-SELECT (SELECT id FROM category WHERE slug = 'single-card'), name, slug
-FROM (VALUES
-    ('Promo Card', 'promo-card')
-) AS t(name, slug)
-ON CONFLICT (slug) DO NOTHING;
-
--- Reaplicable sobre una BBDD ya sembrada con la jerarquía vieja (promo-card
--- como hija directa de Sellado, antes de 1.4): el INSERT de arriba no mueve
--- una fila ya existente, así que se corrige aquí explícitamente.
-UPDATE category
-SET parent_category_id = (SELECT id FROM category WHERE slug = 'single-card')
-WHERE slug = 'promo-card';
-
--- OJO: 'Lote de cartas' y 'Otros' (D.3) NO se siembran aquí a propósito --
--- quedan fuera de la jerarquía de categorías comparables. classify_product()
--- los marca LOTE_CARTAS/OTROS y el matcher los excluye del pipeline
+-- OJO: LOTE_CARTAS/PROMO_CARD/MYSTERY_PACK/DICE_ACCESSORY/OTROS (Fase 0 del
+-- pipeline + catch-all) NO se siembran aquí a propósito -- quedan fuera de
+-- la jerarquía de categorías comparables. classify_product() los marca
+-- not_applicable y el matcher los excluye del pipeline
 -- (match_status='not_applicable') sin necesitar una categoría para ellos.
+-- Dice/Accessory y Mystery Pack y Promo Card ya NO tienen categoría (antes
+-- sí la tenían) -- decisión de diseño explícita: no existe un canónico de
+-- producto sellado razonable con el que comparar precio para ninguno de
+-- los cuatro (ver §2 de la guía).

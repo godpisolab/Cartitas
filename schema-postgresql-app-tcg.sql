@@ -44,6 +44,15 @@ CREATE TABLE product (
     set_code       VARCHAR(20),
     main_set       VARCHAR(10),  -- set de lanzamiento (ej. OP16); distinto de set_code para Starter Deck/Illustration Box con código propio
     language       product_language,
+    -- 'display' | 'case' | 'sobre' | NULL (Recognition Pipeline, docs/propuestas/
+    -- guia_nuevo_matcher.md) -- sustituye a la antigua separación caja/sobre/case
+    -- POR CATEGORÍA (antes booster-box/booster-pack/booster-case eran tres
+    -- categorías distintas): ONE_PIECE/EXTRA_BOOSTER/PREMIUM_BOOSTER_BOX/
+    -- STARTER_DECK/DOUBLE_PACK conviven en UNA categoría, distinguidos por esta
+    -- columna. NULL para família de unidad única sin esta dimensión (Playmat,
+    -- Sleeves, Illustration Box, Devil Fruits Collection, Premium Card
+    -- Collection).
+    packaging      VARCHAR(10),
     name_canonical VARCHAR(255) NOT NULL,
     image_url      TEXT,
     is_hot         BOOLEAN NOT NULL DEFAULT false,

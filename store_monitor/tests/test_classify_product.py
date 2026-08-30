@@ -1,13 +1,25 @@
-"""Tests de classify_product() / _detect_language() -- sección 1.1 del plan
-de pruebas. Lógica de reglas de texto pura, sin red ni BBDD: el mayor
-retorno por hora invertida, según la propia prioridad del plan.
+"""Tests de classify_product() / _detect_language() -- Recognition Pipeline
+(docs/propuestas/guia_nuevo_matcher.md). Lógica de reglas de texto pura, sin
+red ni BBDD.
 
 Nota sobre el dataclass Classification: sus campos van en el orden
-(product_type, set_code, language, main_set) -- DISTINTO del orden en que
-se suele hablar de ellos en prosa ("tipo, set, idioma"). Los tests de abajo
-acceden siempre por nombre de atributo, nunca por posición, para no
-introducir un desajuste silencioso entre el orden "natural" de lectura y
-el orden real del dataclass.
+(product_type, set_code, language, main_set, packaging) -- DISTINTO del
+orden en que se suele hablar de ellos en prosa. Los tests de abajo acceden
+siempre por nombre de atributo, nunca por posición, para no introducir un
+desajuste silencioso entre el orden "natural" de lectura y el orden real
+del dataclass.
+
+Taxonomía nueva vs. la anterior: BOOSTER_BOX/BOOSTER_PACK/BOOSTER_CASE se
+funden en ONE_PIECE (packaging='display'/'sobre'/'case' sustituye a la
+categoría); PREMIUM_COLLECTION se separa en PREMIUM_CARD_COLLECTION y
+PREMIUM_BOOSTER_BOX (dos productos distintos, no una variante de
+empaquetado); LEARN_DECK se funde en STARTER_DECK; EXTRA_BOOSTER y SLEEVES
+son família nuevas (antes vivían sin categoría propia, dentro de
+BOOSTER_PACK/BOX vía fallback de código, o directamente en OTROS).
+PROMO_CARD/MYSTERY_PACK/DICE_ACCESSORY suben a Fase 0 (not_applicable
+siempre, igual que LOTE_CARTAS) -- ya no son "tipos de producto" con
+categoría propia, aunque `classify_product()` los sigue devolviendo como
+`product_type` para que el matcher los excluya explícitamente.
 """
 
 from __future__ import annotations
@@ -18,460 +30,703 @@ from shared.classify import classify_product, classify_with_category, _detect_la
 
 
 class TestClassifyProductTable:
-    """Tabla de casos parametrizada (sección 1.1 del plan) -- cada fila es
-    (name, variant_title, product_type, set_code, language, main_set)."""
+    """Tabla de casos parametrizada -- cada fila es (name, variant_title,
+    product_type, set_code, language, main_set, packaging)."""
 
     CASES = [
         pytest.param(
             "Booster Box OP-16 The Time of Battle", None,
-            "BOOSTER_BOX", "OP16", "EN", "OP16",
-            id="booster-box-con-guion",
+            "ONE_PIECE", "OP16", "EN", "OP16", "display",
+            id="one-piece-caja-con-guion",
         ),
         pytest.param(
             "Starter Deck ST-21 Gear 5 Inglés", None,
-            "STARTER_DECK", "ST21", "EN", None,
+            "STARTER_DECK", "ST21", "EN", None, "sobre",
             id="starter-deck-idioma-explicito",
         ),
         pytest.param(
             "Sobre One Piece OP16 (Japonés)", None,
-            "BOOSTER_PACK", "OP16", "JP", "OP16",
-            id="booster-pack-sin-guion-japones",
+            "ONE_PIECE", "OP16", "JP", "OP16", "sobre",
+            id="one-piece-sobre-sin-guion-japones",
         ),
         pytest.param(
             "Lote 50 cartas sueltas One Piece", None,
-            "LOTE_CARTAS", None, "EN", None,
+            "LOTE_CARTAS", None, "EN", None, None,
             id="lote-cartas",
         ),
         pytest.param(
-            # Antes de _RELEASE_TITLE_CODES (2026-08-29) el "vol." en
-            # minúscula no disparaba ningún regex y set_code salía None --
-            # ahora "the best vol.2" es una entrada explícita de la lista
-            # blanca (título de release real, PRB02), así que sí se
-            # detecta. El nombre del caso se mantiene para documentar que
-            # sigue sin ser el _VOLUME_RE genérico (PREMIUM_COLLECTION no
-            # está en _VOLUME_IDENTIFIED_PRODUCT_TYPES).
-            "Premium Card Collection The Best Vol.2", None,
-            "PREMIUM_COLLECTION", "PRB02", "EN", None,
-            id="premium-collection-vol-minuscula-no-matchea-set-code",
+            # PREMIUM_CARD_COLLECTION comprueba Vol.N ANTES que su tabla de
+            # ediciones propia (§4.3) -- família aparte de PREMIUM_BOOSTER_BOX,
+            # nunca comparte tabla con OP/PRB/EB.
+            "Premium Card Collection Vol.2 Baroque Works", None,
+            "PREMIUM_CARD_COLLECTION", "VOL02", "EN", None, None,
+            id="premium-card-collection-vol-tiene-prioridad-sobre-tabla-de-edicion",
         ),
         pytest.param(
-            "Funda protectora genérica", None,
-            "OTROS", None, "EN", None,
-            id="sin-keyword-cae-a-otros",
+            # Mismo título "The Best" que arriba usaba Vol.N, pero esta vez
+            # es un Premium BOOSTER (família distinta, código PRB propio) --
+            # nunca colisiona con Premium Card Collection porque cada
+            # família solo reconoce SU PROPIA keyword ("premium card
+            # collection" vs código/tabla PRB).
+            "Premium Booster: The Best Vol.2", None,
+            "PREMIUM_BOOSTER_BOX", "PRB02", "EN", None, "sobre",
+            id="premium-booster-box-title-vol2-no-es-premium-card-collection",
+        ),
+        pytest.param(
+            # Nueva família SLEEVES (antes caía en OTROS) -- singular, no
+            # solo plural (21 de 194 productos reales del catálogo oficial
+            # se nombran en singular).
+            "Limited Card Sleeve", None,
+            "SLEEVES", None, "EN", None, None,
+            id="sleeves-singular-antes-caia-en-otros",
+        ),
+        pytest.param(
+            # La línea numerada oficial "Official Sleeves 1-16" no lleva la
+            # palabra "Vol." -- fallback de número suelto tras "sleeve(s)".
+            "Official Sleeves 11", None,
+            "SLEEVES", "VOL11", "EN", None, None,
+            id="sleeves-numero-suelto-sin-vol-linea-oficial-1-16",
+        ),
+        pytest.param(
+            "Official Card Sleeves 14", None,
+            "SLEEVES", "VOL14", "EN", None, None,
+            id="sleeves-numero-suelto-card-sleeves",
+        ),
+        pytest.param(
+            # "Vol." explícito sigue ganando sobre el fallback de número
+            # suelto cuando ambos podrían aplicar (otra línea de fundas).
+            "Limited Card Sleeve Premium Matte vol.3", None,
+            "SLEEVES", "VOL03", "EN", None, None,
+            id="sleeves-vol-explicito-tiene-prioridad-sobre-numero-suelto",
+        ),
+        pytest.param(
+            # Abreviatura "v.NN" -- fallback SOLO de sleeves (no toca
+            # _VOLUME_RE compartido con DF/Illustration Box/Playmat/Premium
+            # Card Collection).
+            "Fundas v.16", None,
+            "SLEEVES", "VOL16", "EN", None, None,
+            id="sleeves-abreviatura-v-punto-numero",
+        ),
+        pytest.param(
+            "Fundas v 9", None,
+            "SLEEVES", "VOL09", "EN", None, None,
+            id="sleeves-abreviatura-v-espacio-numero-sin-punto",
+        ),
+        pytest.param(
+            # El número suelto tras "sleeve(s)" (línea oficial 1-16) sigue
+            # ganando sobre "v.NN" cuando ambos podrían aplicar.
+            "Official Sleeves 11 v.99", None,
+            "SLEEVES", "VOL11", "EN", None, None,
+            id="sleeves-numero-tras-sleeves-tiene-prioridad-sobre-v-punto",
+        ),
+        pytest.param(
+            # Caso real (2026-08-30): Shopify mete el "Vol.NN" en el
+            # variant_title, no en el nombre principal -- Sleeves es la
+            # única família que también mira variant_title para el código
+            # (el resto de famílias solo miran `name`).
+            "One Piece Card Game - Official Sleeves", "Card Sleeves Monkey D. Luffy Vol.01 One Piece Card Game",
+            "SLEEVES", "VOL01", "EN", None, None,
+            id="sleeves-vol-en-variant-title-no-en-el-nombre",
+        ),
+        pytest.param(
+            # "Vol." en el name gana sobre lo que haya en variant_title si
+            # ambos aplicasen (name comprobado primero dentro de `combined`).
+            "Official Sleeves Vol.02", "Vol.05",
+            "SLEEVES", "VOL02", "EN", None, None,
+            id="sleeves-vol-en-name-tiene-prioridad-sobre-vol-en-variant",
+        ),
+        pytest.param(
+            # Sin número ni "Vol.", fallback a la tabla de personaje/tema
+            # (aportada por el usuario) de la línea "Official Sleeves 1-16".
+            "One Piece Card Game: Official Sleeves – Shanks", None,
+            "SLEEVES", "VOL10", "EN", None, None,
+            id="sleeves-fallback-por-personaje-unico-shanks",
+        ),
+        pytest.param(
+            # "Nami" se repite en varios volúmenes de la línea -- fuera de
+            # la tabla a propósito, mejor needs_review que un match falso.
+            "One Piece Card Game: Official Sleeves – Nami", None,
+            "SLEEVES", None, "EN", None, None,
+            id="sleeves-personaje-ambiguo-repetido-no-tiene-codigo",
+        ),
+        pytest.param(
+            # "Standard Blue" a secas colisiona por substring con la edición
+            # especial "Standard Blue Gold" de OTRA línea de fundas -- fuera
+            # de la tabla a propósito.
+            "Limited Card Sleeve -Standard Blue Gold-", None,
+            "SLEEVES", None, "EN", None, None,
+            id="sleeves-standard-blue-gold-no-colisiona-con-volumen-numerado",
         ),
         pytest.param(
             None, None,
-            "OTROS", None, None, None,
+            "OTROS", None, None, None, None,
             id="name-none-no-revienta",
         ),
         pytest.param(
             "", None,
-            "OTROS", None, None, None,
+            "OTROS", None, None, None, None,
             id="name-cadena-vacia",
         ),
         pytest.param(
             # "Mazo de inicio" prueba la keyword de tipo en español; "Buggy"
-            # es además una entrada real de _STARTER_DECK_CHARACTER_CODES
-            # desde 2026-08-29 (antes salía None, sin lookup de personaje).
+            # es además una entrada real de _STARTER_DECK_CHARACTER_CODES.
             "Mazo de inicio Buggy", None,
-            "STARTER_DECK", "ST25", "EN", None,
+            "STARTER_DECK", "ST25", "EN", None, "sobre",
             id="keyword-en-espanol",
         ),
         pytest.param(
             "One Piece TCG", "Inglés",
-            "OTROS", None, "EN", None,
+            "OTROS", None, "EN", None, None,
             id="idioma-por-fallback-de-variant-title",
         ),
         pytest.param(
             "EN Booster Box OP-16", None,
-            "BOOSTER_BOX", "OP16", "EN", "OP16",
+            "ONE_PIECE", "OP16", "EN", "OP16", "display",
             id="EN-mayuscula-como-codigo-de-idioma-real",
         ),
         pytest.param(
+            # El fallback name+variant_title (name_variant en _classify_pass)
+            # NO es exclusivo de Sleeves -- se aplica a TODAS las famílias de
+            # Fase 2: aquí el código real vive solo en variant_title (patrón
+            # Shopify real: nombre genérico + variante con el código del
+            # lanzamiento).
+            "One Piece Card Game Booster Box", "OP-01",
+            "ONE_PIECE", "OP01", "EN", "OP01", "display",
+            id="codigo-en-variant-title-no-en-el-nombre-one-piece",
+        ),
+        pytest.param(
+            "Starter Deck", "ST-05",
+            "STARTER_DECK", "ST05", "EN", None, "sobre",
+            id="codigo-en-variant-title-no-en-el-nombre-starter-deck",
+        ),
+        pytest.param(
+            # `name` sigue ganando sobre variant_title si ambos traen código
+            # (name_variant concatena name PRIMERO, .search() se queda con
+            # el primer match).
+            "One Piece Card Game Booster Box OP-16", "OP-01",
+            "ONE_PIECE", "OP16", "EN", "OP16", "display",
+            id="codigo-en-name-tiene-prioridad-sobre-variant-title",
+        ),
+        pytest.param(
             "KID – STARTER DECK ONE PIECE – ST 36", None,
-            "STARTER_DECK", "ST36", "EN", None,
+            "STARTER_DECK", "ST36", "EN", None, "sobre",
             id="set-code-con-espacio-en-vez-de-guion-caso-real-arte9",
         ),
         pytest.param(
+            # LEARN_DECK fusionado en STARTER_DECK -- "learn together" sigue
+            # comprobándose PRIMERO dentro de la rama, un raw_name real
+            # ("LEARN TOGETHER DECK SET - STARTER DECKS ONE PIECE") contiene
+            # AMBAS keywords a la vez. set_code="LD01" fijo (2026-08-30):
+            # único release real de esta línea, ver _classify_pass.
             "LEARN TOGETHER DECK SET – STARTER DECKS ONE PIECE", None,
-            "LEARN_DECK", None, "EN", None,
-            id="learn-deck-gana-a-starter-deck-pese-a-contener-starter-decks",
+            "STARTER_DECK", "LD01", "EN", None, "sobre",
+            id="learn-together-fusionado-en-starter-deck-pese-a-contener-starter-decks",
         ),
         pytest.param(
+            # Código PRB-NN explícito -> PREMIUM_BOOSTER_BOX (no
+            # PREMIUM_CARD_COLLECTION, que ni siquiera se comprueba aquí --
+            # requiere la keyword "premium card collection" en el texto).
             "ONE PIECE CARD GAME - THE BEST VOL2 - PRB02 - EN", None,
-            "PREMIUM_COLLECTION", "PRB02", "EN", None,
+            "PREMIUM_BOOSTER_BOX", "PRB02", "EN", None, "sobre",
             id="prefijo-generico-VOL-no-es-set-code-solo-prefijos-de-la-lista-blanca",
         ),
         pytest.param(
-            # 2026-08-27: IB-NN SÍ se reconoce ahora (ver
-            # TestIllustrationBoxCodigoIB) -- convención real de
-            # Distrito Zero/Gameria, distinta de "Vol.N".
             "ONE PIECE CARD GAME - ILLUSTRATION BOX IB-06 - EN", None,
-            "ILLUSTRATION_BOX", "VOL06", "EN", None,
+            "ILLUSTRATION_BOX", "VOL06", "EN", None, None,
             id="prefijo-IB-se-reconoce-como-volumen-de-illustration-box",
         ),
         pytest.param(
+            # main_set=None (NUEVO, cambio de diseño deliberado): main_set
+            # solo se deriva para ONE_PIECE (=set_code) y DOUBLE_PACK (tabla
+            # DP<->OP) -- un "OP13" decorativo de acompañamiento en el
+            # nombre de un Illustration Box ya no se usa como main_set (era
+            # ruido, no señal real -- nunca se compara en el matching).
             "One Piece Illustration Box Vol.6 Law & Rosinante OP13", None,
-            "ILLUSTRATION_BOX", "VOL06", "EN", "OP13",
-            id="illustration-box-usa-vol-no-el-op-decorativo-de-acompanamiento",
+            "ILLUSTRATION_BOX", "VOL06", "EN", None, None,
+            id="illustration-box-usa-vol-main-set-no-se-deriva-del-op-decorativo",
         ),
         pytest.param(
             "One Piece Playmat Limited Edition Vol.1 + 3 Sobres OP-15", None,
-            "PLAYMAT", "VOL01", "EN", "OP15",
-            id="playmat-usa-vol-no-el-op-decorativo-de-acompanamiento",
+            "PLAYMAT", "VOL01", "EN", None, None,
+            id="playmat-usa-vol-main-set-no-se-deriva-del-op-decorativo",
         ),
         pytest.param(
             "Official Playmat Limited Edition Vol.3 EN", None,
-            "PLAYMAT", "VOL03", "EN", None,
+            "PLAYMAT", "VOL03", "EN", None, None,
             id="playmat-vol-de-un-solo-digito-se-normaliza-con-cero",
         ),
-        # 2026-08-27: investigación sobre multi_tienda_one_piece.csv real
-        # (1536 filas, 30 tiendas) -- 35% del catálogo caía en OTROS porque
-        # la única palabra de tipo vivía en `variant`, nunca en `name`.
         pytest.param(
             "One Piece | OP-11 A Fist of Divine Speed", "Sobre Inglés",
-            "BOOSTER_PACK", "OP11", "EN", "OP11",
+            "ONE_PIECE", "OP11", "EN", "OP11", "sobre",
             id="tipo-solo-en-variant-nunca-en-name-caso-real-pokemillon-sobre",
         ),
         pytest.param(
             "One Piece | OP-11 A Fist of Divine Speed", "Caja 24 Sobres Inglés",
-            "BOOSTER_BOX", "OP11", "EN", "OP11",
+            "ONE_PIECE", "OP11", "EN", "OP11", "display",
             id="tipo-solo-en-variant-nunca-en-name-caso-real-pokemillon-caja",
         ),
         pytest.param(
             "Mazo ST-22 Ace & Shirohige", None,
-            "STARTER_DECK", "ST22", "EN", None,
+            "STARTER_DECK", "ST22", "EN", None, "sobre",
             id="mazo-a-secas-sin-de-inicio-no-colisiona-con-amazon",
         ),
         pytest.param(
             "ONE PIECE TCG - DOBLE PACK SET VOL. 14 (DP-14)", "",
-            "DOUBLE_PACK", "DP14", "EN", None,
+            "DOUBLE_PACK", "DP14", "EN", None, "sobre",
             id="doble-pack-variante-en-espanol",
         ),
         pytest.param(
             "Pack 5 Sobres One Piece Adventure on KAMI’s Island OP15 - Japones", "Default Title",
-            "BOOSTER_PACK", "OP15", "JP", "OP15",
-            id="sobres-plural-no-matchea-sobre-con-espacio-necesita-fallback",
+            "ONE_PIECE", "OP15", "JP", "OP15", "sobre",
+            id="sobres-plural-catch-all-no-hace-falta-aqui-el-codigo-op-ya-resuelve",
         ),
         pytest.param(
             "Rebecca (OP10-058) (V.1) Royal Blood (Non-English)", "CGC 10",
-            "LOTE_CARTAS", "OP10", None, "OP10",
+            "LOTE_CARTAS", "OP10", None, None, None,
             id="cgc-carta-individual-gradeada-gana-a-cualquier-otra-keyword",
         ),
         pytest.param(
             "Monkey.D.Luffy (P-001) 7 - Eleven Promos", "PSA 10",
-            "LOTE_CARTAS", None, "EN", None,
+            "LOTE_CARTAS", None, "EN", None, None,
             id="psa-carta-individual-gradeada",
         ),
         pytest.param(
             "ONE PIECE TCG - EB-05", "",
-            "BOOSTER_PACK", "EB05", "EN", None,
-            id="codigo-eb-sin-ninguna-palabra-de-tipo-alrededor-fallback",
-        ),
-        pytest.param(
-            "ONE PIECE CHOPPER’s Vol. 1 carta/comic promocional EB02-003", "",
-            "OTROS", "EB02", "EN", None,
-            id="codigo-eb-de-CARTA-INDIVIDUAL-eb02-003-no-dispara-el-fallback-de-booster",
+            "EXTRA_BOOSTER", "EB05", "EN", None, "sobre",
+            id="codigo-eb-sin-ninguna-palabra-de-tipo-alrededor-family-propia",
         ),
         pytest.param(
             "(CASE) THE BEST 2 – PRB-02 – x10 Booster Box- One Piece Card Game", None,
-            "BOOSTER_CASE", "PRB02", "EN", None,
-            id="booster-case-parentesis-case",
+            "PREMIUM_BOOSTER_BOX", "PRB02", "EN", None, "case",
+            id="premium-booster-box-parentesis-case",
         ),
         pytest.param(
+            # NUEVO: "case" gana como packaging (no como tipo, ya no hay
+            # família BOOSTER_CASE aparte) -- ONE_PIECE por el código OP-16.
             "Case - Booster Box OP-16 The Time of Battle", None,
-            "BOOSTER_CASE", "OP16", "EN", "OP16",
-            id="booster-case-gana-a-booster-box-por-orden-de-lista",
+            "ONE_PIECE", "OP16", "EN", "OP16", "case",
+            id="case-como-packaging-no-como-tipo-aparte",
         ),
         pytest.param(
+            # Reclasificación deliberada del rediseño (Corrección 4): el
+            # código ST-05 activa la família STARTER_DECK directamente --
+            # ya no hay una família BOOSTER_CASE genérica que gane primero
+            # y arrastre un set_code de otra família como decorativo.
             "One Piece Card Game Booster Box Case ST-05", None,
-            "BOOSTER_CASE", "ST05", "EN", None,
-            id="booster-box-case-keyword-completa",
+            "STARTER_DECK", "ST05", "EN", None, "case",
+            id="codigo-st-activa-starter-deck-directamente-reclasificacion-del-rediseno",
         ),
         pytest.param(
-            # docs/pendientes-motor-matching.md punto 2 -- caso real que
-            # SÍ confirmó mal en producción de prueba (commit 161bae5): un
-            # accesorio ("Card Case", una funda de cartas) coló como
-            # BOOSTER_CASE por el patrón genérico "case -" que existía
-            # entonces. No tiene ni palabra de contexto (caja/booster/
-            # sellado) ni código de set -- debe quedar excluido.
+            # docs/pendientes-motor-matching.md punto 2 -- caso real: un
+            # accesorio ("Card Case", una funda de cartas) NO debe colar
+            # como ningún tipo de producto sellado -- sin código de família
+            # ni título reconocible ni keyword de sellado, cae en OTROS
+            # (ya no hace falta un _BOOSTER_CASE_CONTEXT_RE dedicado: al no
+            # activarse ninguna família, nunca se llega a evaluar packaging).
             "Limited Card Case -Monkey.D.Luffy-", None,
-            "OTROS", None, "EN", None,
-            id="card-case-accesorio-no-es-booster-case-regresion-161bae5",
+            "OTROS", None, "EN", None, None,
+            id="card-case-accesorio-no-activa-ninguna-familia",
         ),
         pytest.param(
-            # Caso real (multi_tienda_one_piece.csv, tienda Master of
-            # Games): "Case" sin ninguna palabra de caja/booster pegada --
-            # solo el código de set. Debe seguir confirmando BOOSTER_CASE
-            # vía el código, no solo vía la palabra de contexto.
             "[PREORDER] [INGLÉS] One Piece Card Game OP-19 Case", None,
-            "BOOSTER_CASE", "OP19", "EN", "OP19",
+            "ONE_PIECE", "OP19", "EN", "OP19", "case",
             id="case-sin-booster-ni-box-pegado-confirma-por-codigo-de-set",
         ),
         pytest.param(
-            # Caso real (FreakCorp): "Case" + "cajas" (contexto en
-            # español) + código de set, sin ninguna keyword de tipo en
-            # inglés.
             "Case OP02 Paramount War (12 cajas)", None,
-            "BOOSTER_CASE", "OP02", "EN", "OP02",
+            "ONE_PIECE", "OP02", "EN", "OP02", "case",
             id="case-con-contexto-cajas-en-espanol",
         ),
         pytest.param(
-            # "Dice Case" (un estuche de dados) nunca debe colar como
-            # BOOSTER_CASE -- ninguna palabra de contexto de caja/booster/
-            # sellado, ningún código de set.
             "One Piece TCG Official Dice and Dice Case Set", None,
-            "DICE_ACCESSORY", None, "EN", None,
-            id="dice-case-no-es-booster-case",
+            "DICE_ACCESSORY", None, "EN", None, None,
+            id="dice-case-no-es-ningun-booster",
         ),
         pytest.param(
-            # "Playmat and Card Case Set" -- PLAYMAT gana por orden de
-            # lista (se comprueba antes), y BOOSTER_CASE tampoco tiene
-            # señal de contexto/código aquí de todas formas.
             "One Piece Card Game - Playmat and Card Case Set -25th Edition-", None,
-            "PLAYMAT", None, "EN", None,
-            id="playmat-y-card-case-no-es-booster-case",
+            "PLAYMAT", None, "EN", None, None,
+            id="playmat-y-card-case-gana-playmat-por-orden-de-familia",
         ),
         pytest.param(
-            # "Case" mencionado sin ningún contexto de producto sellado ni
-            # código de set reconocible -- un producto Funko Pop real del
-            # CSV, no relacionado con Booster Case en absoluto.
             "Funko Pop! One Piece - Case 5+1 Jewelry Bonney", None,
-            "OTROS", None, "EN", None,
-            id="case-sin-contexto-ni-codigo-no-es-booster-case",
+            "OTROS", None, "EN", None, None,
+            id="case-sin-contexto-ni-codigo-no-activa-ninguna-familia",
         ),
         pytest.param(
-            # docs/pendientes-motor-matching.md punto 7 -- caso real sin
-            # ningún código DF explícito, solo el volumen. "caja" por sí
-            # sola habría capturado esto como BOOSTER_BOX antes de llegar a
-            # LEARN_DECK/DEVIL_FRUITS_COLLECTION si el orden de la lista no
-            # protegiera -- aquí protege por el orden ya existente
-            # (DEVIL_FRUITS_COLLECTION va antes que BOOSTER_BOX).
             "Caja One Piece Devil Fruits Collection Vol.2 - Ingles", None,
-            "DEVIL_FRUITS_COLLECTION", "DF02", "EN", None,
+            "DEVIL_FRUITS_COLLECTION", "DF02", "EN", None, None,
             id="devil-fruits-collection-sin-codigo-df-explicito-usa-vol-como-fallback",
         ),
         pytest.param(
-            # keyword en español, mismo patrón que "mazo"/"doble pack" --
-            # sin esto, "caja" capturaba como BOOSTER_BOX antes de llegar a
-            # LEARN_DECK.
+            # "Caja" activa packaging='display' dentro de STARTER_DECK
+            # (fusionado desde LEARN_DECK) -- ya no colisiona con ONE_PIECE
+            # porque "learn together"/"aprende a jugar" se comprueba ANTES.
             "One Piece | Caja Aprende a Jugar", None,
-            "LEARN_DECK", None, "EN", None,
-            id="learn-deck-aprende-a-jugar-en-espanol",
+            "STARTER_DECK", "LD01", "EN", None, "display",
+            id="starter-deck-aprende-a-jugar-en-espanol-con-caja-como-packaging",
         ),
         pytest.param(
-            # docs/pendientes-motor-matching.md punto 4 -- caso real
-            # confirmado: la carta suelta de regalo DON!! (viene DENTRO de
-            # Double Pack Set Vol.10, vendida por separado) coincidía con
-            # el fallback de código DP-NN y confirmaba contra el Double
-            # Pack Set sellado completo -- precio y unidad de venta
-            # completamente distintos. Sin "set"/"pack"/"caja"/"box"/
-            # "sobre" que confirme que es el sellado -> PROMO_CARD.
+            # docs/pendientes-motor-matching.md punto 4 -- la carta suelta
+            # de regalo DON!! (viene DENTRO de Double Pack Set Vol.10,
+            # vendida por separado) no debe confirmar contra el Double Pack
+            # sellado completo. Sin "set"/"pack"/"caja"/"box"/"sobre" que
+            # confirme que es el sellado -> PROMO_CARD (Fase 0).
             "Don!! (DP10 Map) - One Piece Products (DON!!)", "English / Near Mint / Normal",
-            "PROMO_CARD", "DP10", "EN", None,
+            "PROMO_CARD", "DP10", "EN", None, None,
             id="don-card-suelta-sin-contexto-de-sellado-es-promo-card",
         ),
         pytest.param(
             # Control negativo -- "Pack" en el mismo texto SÍ confirma que
-            # es el sellado completo, se queda como DOUBLE_PACK (caso real,
-            # misma tienda, mismo patrón DON!!+código).
+            # es el sellado completo. main_set='OP09' se deriva ahora de la
+            # tabla DP<->OP (Corrección 5), no de un "OP09" literal --
+            # coincide aquí, pero por una vía distinta a antes.
             "One Piece Special DON!! Card Pack DP-06 - Emperors in the New World (OP09)", "Inglés",
-            "DOUBLE_PACK", "DP06", "EN", "OP09",
+            "DOUBLE_PACK", "DP06", "EN", "OP09", "sobre",
             id="don-card-pack-con-pack-en-el-texto-sigue-siendo-double-pack",
         ),
         pytest.param(
-            # Control negativo -- el propio Double Pack Set sellado que
-            # contiene la carta DON!! de regalo, no debe verse afectado
-            # (ya clasifica por la keyword "double pack" en el bucle
-            # principal, nunca llega al fallback con el guard nuevo).
+            # main_set='OP15' vía tabla DP<->OP (antes None, ninguna
+            # regresión: era un hueco de diseño sin usar, ver Corrección 5).
             "One Piece Card Game Double Pack Set Vol.10 [DP-10] – 2 Booster Packs + Exclusive DON!! Card", None,
-            "DOUBLE_PACK", "DP10", "EN", None,
-            id="double-pack-set-completo-con-don-card-de-regalo-mencionada-no-se-ve-afectado",
+            "DOUBLE_PACK", "DP10", "EN", "OP15", "sobre",
+            id="double-pack-set-completo-con-don-card-de-regalo-main-set-via-tabla",
         ),
-        # -- 2026-08-29, auditoría de la cola needs_review (182 -> 49) --
         pytest.param(
-            # Bug real: el regex principal de set_code no llevaba
-            # re.IGNORECASE (a diferencia de main_set_match/_DOUBLE_PACK_
-            # SET_CODE_RE) -- "Caja Op04" de Saruman Games salía set_code=None.
             "One Piece Tcg Caja Op04 KINGDOMS OF INTRIGUE", None,
-            "BOOSTER_BOX", "OP04", "EN", "OP04",
+            "ONE_PIECE", "OP04", "EN", "OP04", "display",
             id="set-code-minuscula-op04",
         ),
         pytest.param(
             "One Piece Card Game Memorial Collection Eb-02 Sobre", None,
-            "BOOSTER_PACK", "EB02", "EN", None,
-            id="set-code-mixto-eb-02",
+            "EXTRA_BOOSTER", "EB02", "EN", None, "sobre",
+            id="set-code-mixto-eb-02-family-propia-no-generica",
         ),
         pytest.param(
-            # _STARTER_DECK_NUM_RE -- Gameria nombra sus Starter Deck como
-            # "... Starter Deck <N>" sin ST-/ST delante.
             "One Piece Card Game Zoro and Sanji Starter Deck 12", None,
-            "STARTER_DECK", "ST12", "EN", None,
+            "STARTER_DECK", "ST12", "EN", None, "sobre",
             id="starter-deck-numero-suelto-sin-prefijo",
         ),
         pytest.param(
-            # _DOUBLE_PACK_SET_NUM_RE -- mismo patrón, "Double Pack Set <N>"
-            # sin DP-/DP delante.
+            # main_set='OP12' vía tabla DP<->OP (antes None -- información
+            # gratis que ya teníamos y no se usaba, Corrección 5).
             "DOUBLE PACK SET 8 LEGACY OF THE MASTER", None,
-            "DOUBLE_PACK", "DP08", "EN", None,
-            id="double-pack-set-numero-suelto-sin-prefijo",
+            "DOUBLE_PACK", "DP08", "EN", "OP12", "sobre",
+            id="double-pack-set-numero-suelto-main-set-via-tabla",
         ),
         pytest.param(
-            # _STARTER_DECK_CHARACTER_CODES -- personaje sin color ni
-            # código (inGenio BCN); "Shanks" es inequívoco (solo ST-23).
             "One Piece Starter Deck Shanks", None,
-            "STARTER_DECK", "ST23", "EN", None,
+            "STARTER_DECK", "ST23", "EN", None, "sobre",
             id="starter-deck-personaje-inequivoco-shanks",
         ),
         pytest.param(
-            # Personaje AMBIGUO (Bandai reutilizó "Charlotte Katakuri" en
-            # ST-20 Y ST-34 con distinto color) -- se deja FUERA de
-            # _STARTER_DECK_CHARACTER_CODES a propósito, set_code debe
-            # seguir saliendo None (needs_review, no un match a ciegas).
             "One Piece Starter Deck Charlotte Katakuri", None,
-            "STARTER_DECK", None, "EN", None,
+            "STARTER_DECK", None, "EN", None, "sobre",
             id="starter-deck-personaje-ambiguo-katakuri-no-resuelve",
         ),
         pytest.param(
-            # &amp;/&#038; se decodifican a "&", que _normalize_for_lookup
-            # convierte en espacio -- bug real corregido (clave de la tabla
-            # tenía que ser "ace newgate", no "ace & newgate").
             "One Piece Starter Deck Ace &amp; Newgate", None,
-            "STARTER_DECK", "ST22", "EN", None,
+            "STARTER_DECK", "ST22", "EN", None, "sobre",
             id="starter-deck-personaje-con-entidad-html-ace-newgate",
         ),
         pytest.param(
-            # _RELEASE_TITLE_CODES -- título oficial de release sin código
-            # (inGenio BCN).
-            # main_set=None a propósito -- se deriva de un "OP\d+" literal en
-            # el texto (no del set_code ya resuelto vía lookup), y este texto
-            # no trae ningún dígito.
+            # Tabla de títulos propia de ONE_PIECE (_OP_TITLE_CODES) --
+            # título oficial de release sin código.
             "One Piece Romance Dawn Booster Box", None,
-            "BOOSTER_BOX", "OP01", "EN", None,
+            "ONE_PIECE", "OP01", "EN", "OP01", "display",
             id="release-title-sin-codigo-romance-dawn",
         ),
         pytest.param(
-            # "Ultra Deck: The Three Captains" (ST-10) va en
-            # _STARTER_DECK_CHARACTER_CODES, no en _RELEASE_TITLE_CODES --
-            # sigue siendo un Starter Deck, distinto de Booster Box/Premium.
             "One Piece Starter Deck Ultra Deck The Three Captains", None,
-            "STARTER_DECK", "ST10", "EN", None,
+            "STARTER_DECK", "ST10", "EN", None, "sobre",
             id="starter-deck-frase-multi-palabra-three-captains",
         ),
         pytest.param(
-            # Código PRB-NN explícito debe ganar sobre el keyword genérico
-            # "sobre" (Saruman Games, "Premium2" no coincide con ningún
-            # keyword de PREMIUM_COLLECTION).
             "One Piece Tcg Premium2 – PRB-02 sobre", None,
-            "PREMIUM_COLLECTION", "PRB02", "EN", None,
-            id="codigo-prb-pisa-booster-pack-generico",
+            "PREMIUM_BOOSTER_BOX", "PRB02", "EN", None, "sobre",
+            id="codigo-prb-activa-premium-booster-box-directamente",
         ),
         pytest.param(
-            # Vol.N -> VOLnn para PREMIUM_COLLECTION (Mulligan) -- Bandai
-            # nunca asigna código a estas ediciones, "Vol.N" es la única
-            # señal real.
             "ONE PIECE CARD GAME PREMIUM CARD COLLECTION VOL 3", None,
-            "PREMIUM_COLLECTION", "VOL03", "EN", None,
-            id="premium-collection-vol-sin-code-real",
+            "PREMIUM_CARD_COLLECTION", "VOL03", "EN", None, None,
+            id="premium-card-collection-vol-sin-code-real",
         ),
         pytest.param(
-            # "fruta del diablo" en español -- sin esto caía en OTROS pese
-            # a traer el código DF-NN explícito.
             "One Piece | Fruta del Diablo vol.1 [DF-01] Inglés 2023", None,
-            "DEVIL_FRUITS_COLLECTION", "DF01", "EN", None,
+            "DEVIL_FRUITS_COLLECTION", "DF01", "EN", None, None,
             id="devil-fruits-collection-espanol",
         ),
         pytest.param(
-            # Código DP-NN explícito debe ganar sobre el keyword genérico
-            # "sobre"/"caja" -- mismo bug que PRB, encontrado después en
-            # Pokemillon.
-            "One Piece DP09 The Azure Sea's Seven OP14", None,
-            "DOUBLE_PACK", "DP09", "EN", "OP14",
-            id="codigo-dp-pisa-booster-pack-generico",
+            # main_set='OP14' vía tabla DP<->OP -- NO el "OP12" decorativo
+            # que aparece en el propio texto (Corrección 5: "nunca al
+            # revés", el DP-NN real manda, no un OP mencionado al lado).
+            # DP09->OP14 verificado 2026-08-30 contra release_date del
+            # catálogo oficial (antes la tabla tenía DP09->OP13 por error).
+            "One Piece DP09 The Azure Sea's Seven OP12", None,
+            "DOUBLE_PACK", "DP09", "EN", "OP14", "sobre",
+            id="codigo-dp-activa-double-pack-directamente-main-set-por-tabla-no-por-texto",
         ),
         pytest.param(
-            # Case sin la palabra "case" -- "x12" es EXACTO el multiplicador
-            # real de Case para booster-box (Master of Games).
+            # Bug real corregido 2026-08-30: _RANGO_CODIGOS_RE exigía el
+            # MISMO prefijo en ambos lados (backreference) para no confundir
+            # un designador DOBLE real ("OP15-EB04", un único lanzamiento
+            # con dos códigos) con un rango ("ST-15 - ST-20"). Sin código DP
+            # ni "double pack" en el texto -> ONE_PIECE gana, set_code=OP15.
+            "ONE PIECE OP15 - EB04 - ADVENTURE ON THE ISLAND OF THE GODS - Caja de Sobres", None,
+            "ONE_PIECE", "OP15", "EN", "OP15", "display",
+            id="op-eb-designador-doble-no-es-un-rango-cuenta-como-op",
+        ),
+        pytest.param(
+            # Mismo bug, lado Double Pack: "DOUBLE PACK" en el texto activa
+            # esa família ANTES de llegar a ONE_PIECE, así que el designador
+            # doble DP09-OP12 (con un OP decorativo, posiblemente erróneo de
+            # la propia tienda) siempre cuenta como Double Pack, nunca OP.
+            "ONE PIECE DOUBLE PACK DP09 - OP12 LEGACY OF THE MASTER", None,
+            "DOUBLE_PACK", "DP09", "EN", "OP14", "sobre",
+            id="dp-op-designador-doble-siempre-cuenta-como-double-pack",
+        ),
+        pytest.param(
+            # _OP_CODE_RE ahora acepta espacio como separador, igual que ST
+            # desde el fix de "ST 36" (Arte9) -- antes solo aceptaba guion u
+            # nada, "OP 12" con espacio se quedaba sin set_code.
+            "One Piece - OP 12  - Booster Box (24 packs)", None,
+            "ONE_PIECE", "OP12", "EN", "OP12", "display",
+            id="op-con-espacio-como-separador",
+        ),
+        pytest.param(
+            # Accesorio de marca ajena (deck box/funda de terceros, nunca un
+            # producto de Bandai) -- "caja" ya no basta para asumir
+            # ONE_PIECE si el texto es claramente de un accesorio de otra
+            # marca. Cae a OTROS (not_applicable en matcher.py).
+            "Caja Ultimate Guard Deck Box Sidewinder 80+ One Piece - Zoro", None,
+            "OTROS", None, "EN", None, None,
+            id="accesorio-ultimate-guard-no-cuenta-como-one-piece",
+        ),
+        pytest.param(
+            "Caja de Almacenamiento Pikachu", None,
+            "OTROS", None, "EN", None, None,
+            id="caja-de-almacenamiento-generica-no-cuenta-como-one-piece",
+        ),
+        pytest.param(
+            # "MAZO ONE PIECE NN" -- equivalente en español de "Starter Deck
+            # NN" (_STARTER_DECK_NUM_RE), mismo patrón, misma keyword "mazo"
+            # que ya activa la família.
+            "MAZO ONE PIECE 08", None,
+            "STARTER_DECK", "ST08", "EN", None, "sobre",
+            id="mazo-one-piece-numero-suelto-en-espanol",
+        ),
+        pytest.param(
+            # Learn Together ahora lleva código fijo "LD01" (único release
+            # real de esta línea) en vez de quedar siempre sin set_code.
+            "One Piece Card Game: Learn Together Deck Set", None,
+            "STARTER_DECK", "LD01", "EN", None, "sobre",
+            id="learn-together-codigo-fijo-ld01-sin-codigo-explicito",
+        ),
+        pytest.param(
+            # Si el texto SÍ trae el código LD explícito, se respeta ese en
+            # vez de asumir LD01 a ciegas (por si algún día hay un LD02).
+            "One Piece Card Game - Learn Together Deck Set (LD02)", None,
+            "STARTER_DECK", "LD02", "EN", None, "sobre",
+            id="learn-together-respeta-codigo-ld-explicito-si-aparece",
+        ),
+        pytest.param(
+            # Título del booster asociado (_DP_TITLE_CODES, derivada de
+            # _OP_TITLE_CODES + _DP_TO_OP) -- sin ningún código DP-NN visible
+            # en el texto, solo el título oficial del lanzamiento.
+            "One Piece The World's Strongest Warriors Double Pack", None,
+            "DOUBLE_PACK", "DP12", "EN", "OP17", "sobre",
+            id="double-pack-por-titulo-del-booster-sin-codigo-visible",
+        ),
+        pytest.param(
+            # Tabla estricta de Premium Card Collection falla ("LIVE ACTION"
+            # sin la palabra "Edition") -> fallback de clave acortada.
+            "ONE PIECE CARD GAME - PREMIUM CARD COLLECTION - LIVE ACTION", None,
+            "PREMIUM_CARD_COLLECTION", "EDLIVEACTION", "EN", None, None,
+            id="premium-card-collection-fallback-clave-acortada-live-action",
+        ),
+        pytest.param(
+            "ONE PIECE TCG PREMIUM CARD COLLECTION -25TH-", None,
+            "PREMIUM_CARD_COLLECTION", "ED25TH", "EN", None, None,
+            id="premium-card-collection-fallback-clave-acortada-25th",
+        ),
+        pytest.param(
+            # Case por multiplicador x12 (sin la palabra "case") -- ONE_PIECE
+            # vía código OP-16, packaging='case' por _qty_matches.
             "[INGLÉS] One Piece Card Game OP-16 Caja de sobres x12", None,
-            "BOOSTER_CASE", "OP16", "EN", "OP16",
-            id="case-por-multiplicador-x12-sin-palabra-case",
+            "ONE_PIECE", "OP16", "EN", "OP16", "case",
+            id="packaging-case-por-multiplicador-x12-sin-palabra-case",
         ),
         pytest.param(
-            # Control negativo -- x12 NO dispara Case en una categoría sin
-            # multiplicador conocido (Starter Deck): se queda STARTER_DECK,
-            # sin canónico Case al que enlazar de todas formas.
+            # Control negativo -- x12 no es la cantidad de display (6) ni de
+            # case (STARTER_DECK no tiene case en _PACKAGING_UNITS) -> sobre.
             "One Piece Card Game Starter Deck EX Gear5 [ST21] x12", None,
-            "STARTER_DECK", "ST21", "EN", None,
-            id="x12-no-dispara-case-fuera-de-booster-box",
+            "STARTER_DECK", "ST21", "EN", None, "sobre",
+            id="x12-no-dispara-packaging-case-fuera-de-one-piece-extra-booster-premium",
         ),
         pytest.param(
-            # _PLAYMAT_CHARACTER_CODES -- pseudo-código inventado (Bandai
-            # nunca numera estos playmats), ningún personaje se repite.
             "One Piece Card Game Playmat And Storage Box Shanks", None,
-            "PLAYMAT", "SHANKS", "EN", None,
+            "PLAYMAT", "SHANKS", "EN", None, None,
             id="playmat-personaje-shanks",
         ),
         pytest.param(
-            # Typo real visto en Gameria ("Porgas" por "Portgas").
             "One Piece Card Game Playmat And Storage Box Porgas D. Ace", None,
-            "PLAYMAT", "ACE", "EN", None,
+            "PLAYMAT", "ACE", "EN", None, None,
             id="playmat-personaje-typo-porgas-ace",
+        ),
+        pytest.param(
+            # Reclasificación deliberada del rediseño: DEVIL_FRUITS_COLLECTION
+            # es la PRIMERA família de Fase 2 -- un código DF-NN inequívoco
+            # activa su família propia sin importar qué otra keyword
+            # genérica ("Booster Box") también aparezca en el texto. Ya no
+            # existe el gating "solo si name+variant quedan en OTROS" del
+            # sistema anterior -- cada família se activa por SU PROPIA señal,
+            # sin depender de que las demás hayan fallado antes.
+            "Booster Box Something DF-01", None,
+            "DEVIL_FRUITS_COLLECTION", "DF01", "EN", None, None,
+            id="df-code-activa-su-familia-sin-depender-de-otras-keywords-reclasificacion-del-rediseno",
         ),
     ]
 
-    @pytest.mark.parametrize("name,variant_title,product_type,set_code,language,main_set", CASES)
-    def test_classification_table(self, name, variant_title, product_type, set_code, language, main_set):
+    @pytest.mark.parametrize("name,variant_title,product_type,set_code,language,main_set,packaging", CASES)
+    def test_classification_table(self, name, variant_title, product_type, set_code, language, main_set, packaging):
         result = classify_product(name, variant_title)
         assert result.product_type == product_type
         assert result.set_code == set_code
         assert result.language == language
         assert result.main_set == main_set
+        assert result.packaging == packaging
+
+
+class TestCatchAllGenerico:
+    """Corrección 10 (decisión de producto 2026-08-30, cierra §11.4) --
+    producto sellado sin código ni título reconocible de ninguna família
+    anterior, pero con keyword de sellado genérica ("booster"/"caja"/
+    "sobre(s)") -> se asume ONE_PIECE (el booster principal), mismo
+    comportamiento que el sistema anterior. 8 casos reales de producción
+    documentados en la propuesta."""
+
+    @pytest.mark.parametrize("raw_name,esperado_packaging", [
+        ("Booster Box EN", "display"),
+        ("Caja 24 Sobres Inglés", "display"),
+        ("One Piece Booster Box Castellano", "display"),
+        ("Sobre Inglés", "sobre"),
+    ])
+    def test_catch_all_resuelve_a_one_piece_sin_codigo(self, raw_name, esperado_packaging):
+        c = classify_product(raw_name)
+        assert c.product_type == "ONE_PIECE"
+        assert c.set_code is None
+        assert c.main_set is None
+        assert c.packaging == esperado_packaging
+
+    def test_catch_all_no_confunde_accesorios_de_almacenaje_con_booster(self):
+        # Encontrado al validar la implementación contra el catálogo oficial
+        # real: "Official Storage Box" NO es un booster sellado -- el
+        # catch-all no debe reconocer "box" suelto (solo lo reconocía el
+        # sistema anterior como parte de la FRASE "booster box", nunca a
+        # secas). Sin esta protección, todos los accesorios de
+        # almacenamiento/fundas/binders que mencionan "box" colarían como
+        # ONE_PIECE.
+        c = classify_product("Official Storage Box")
+        assert c.product_type == "OTROS"
+
+    def test_catch_all_no_dispara_dentro_de_otra_familia_ya_resuelta(self):
+        # "Playmat and Storage Box" -- PLAYMAT se resuelve antes (keyword
+        # propia), el catch-all nunca llega a evaluarse.
+        c = classify_product("Playmat and Storage Box Set -Shanks-")
+        assert c.product_type == "PLAYMAT"
+
+
+class TestCorreccionCartaIndividualNoActivaFamilia:
+    """Corrección 8 -- las seis regex de código de família de Fase 2 llevan
+    `(?!-\\d)`: un código de família que en realidad es el prefijo de la
+    numeración de una CARTA INDIVIDUAL dentro de otro producto no debe
+    activar esa família como si fuera el producto sellado completo.
+    Encontrada al contrastar el prototipo del documento contra la suite
+    real, no solo contra nombres sueltos -- ver docs/propuestas/
+    guia_nuevo_matcher.md §10.1, cuarta ronda."""
+
+    def test_codigo_eb_de_carta_individual_no_activa_extra_booster(self):
+        c = classify_product("ONE PIECE CHOPPER’s Vol. 1 carta/comic promocional EB02-003", "")
+        assert c.product_type == "OTROS"
+        # _GENERIC_CODE_RE (sin el lookahead, Fase 0/catch-all) sigue
+        # capturando el set de acompañamiento -- información barata, igual
+        # que ya hace LOTE_CARTAS/PROMO_CARD.
+        assert c.set_code == "EB02"
+
+    def test_codigo_de_carta_individual_en_lote_cartas_no_se_ve_afectado(self):
+        # _GENERIC_CODE_RE (Fase 0) NO lleva el lookahead a propósito --
+        # necesita seguir siendo permisiva para el set de acompañamiento de
+        # una carta suelta gradeada.
+        c = classify_product("Rebecca (OP10-058) (V.1) Royal Blood (Non-English)", "CGC 10")
+        assert c.product_type == "LOTE_CARTAS"
+        assert c.set_code == "OP10"
+
+
+class TestCorreccionRangoDeCodigosEnFase2:
+    """Corrección 9 -- guarda de rango (`_RANGO_CODIGOS_RE`, portada del
+    `classify.py` anterior sin cambios) dentro de las funciones de
+    extracción de Fase 2: un rango de códigos ("ST-15 - ST-20",
+    "[ST-31]~[ST-36]") describe un pack ligado a TODO un lote de mazos, no a
+    uno solo -- extraer el primer extremo sería un código inventado. La
+    família igual se activa (por el código presente), solo el set_code
+    queda en None."""
+
+    @pytest.mark.parametrize("raw_name", [
+        "One Piece Sobre ST-15 - ST-20 Release Event Pack",
+        "One Piece Sobre Beginners Deck Party ST-31 - ST-36 Participation Pack",
+        "One Piece Sobre Beginners Deck Party [ST-31]~[ST-36] Winner pack",
+    ])
+    def test_rango_de_codigos_no_extrae_el_primer_extremo(self, raw_name):
+        c = classify_product(raw_name)
+        assert c.product_type == "STARTER_DECK"
+        assert c.set_code is None
+
+    def test_codigo_de_carta_individual_no_se_confunde_con_rango(self):
+        c = classify_product("Rebecca (OP10-058) (V.1) Royal Blood (Non-English)", "CGC 10")
+        assert c.set_code == "OP10"
+
+    def test_codigo_eb_de_carta_individual_no_se_confunde_con_rango(self):
+        c = classify_product("ONE PIECE CHOPPER’s Vol. 1 carta/comic promocional EB02-003", "")
+        assert c.set_code == "EB02"
 
 
 class TestExtraTypeHintDeTags:
-    """extra_type_hint (2026-08-27): señal estructurada adicional -- de
-    momento, `store_product.raw_tags` de Shopify. Verificado en vivo contra
+    """extra_type_hint: señal estructurada adicional -- de momento,
+    `store_product.raw_tags` de Shopify. Verificado en vivo contra
     Pokemillon real: su `product_type` nativo de Shopify viene siempre
     vacío, pero `tags` sí trae señal fiable, de ahí usar esto."""
 
     def test_tags_resuelve_tipo_que_ni_name_ni_variant_traen(self):
-        # Caso real de Pokemillon (verificado en vivo, 2026-08-27): ni
-        # `name` ni `variant` mencionan "caja"/"booster"/etc -- solo `tags`
-        # lo dice ("Cajas de Sobres").
+        # Caso real de Pokemillon: ni `name` ni `variant` mencionan
+        # "caja"/"booster"/etc -- solo `tags` lo dice.
         result = classify_product(
             "One Piece OP13 Carrying On His Will", "Inglés",
             "Caja One Piece, Cajas, Cajas de Sobres, One Piece, OP-13 Carrying On His Will",
         )
-        assert result.product_type == "BOOSTER_BOX"
+        assert result.product_type == "ONE_PIECE"
         assert result.set_code == "OP13"
         assert result.language == "EN"
 
-    def test_sin_tags_el_mismo_producto_se_queda_en_otros(self):
-        # Mismo caso de arriba, sin el tercer argumento -- confirma que la
-        # mejora viene de tags, no de otra cosa (name/variant solos no
-        # bastan para este ejemplo real).
+    def test_sin_tags_ya_no_hace_falta_para_este_caso(self):
+        # A diferencia del sistema anterior (donde este caso SÍ necesitaba
+        # tags), el código OP13 explícito en el propio nombre ya resuelve
+        # ONE_PIECE en la primera pasada -- la Corrección de família-por-
+        # código-propio hace innecesaria la segunda pasada aquí (ver §4.5
+        # de la propuesta).
         result = classify_product("One Piece OP13 Carrying On His Will", "Inglés")
-        assert result.product_type == "OTROS"
+        assert result.product_type == "ONE_PIECE"
+        assert result.set_code == "OP13"
 
     def test_tags_none_no_revienta(self):
         result = classify_product("One Piece OP13 Carrying On His Will", "Inglés", None)
-        assert result.product_type == "OTROS"
+        assert result.product_type == "ONE_PIECE"
 
     def test_tags_no_pisa_una_palabra_de_tipo_ya_clara_en_name(self):
-        # Si name/variant ya lo dejan claro, tags es irrelevante -- no debe
-        # poder CAMBIAR una clasificación ya correcta a otra cosa.
         result = classify_product(
             "Starter Deck ST-21 Gear 5 Inglés", None, "Cajas, Cajas de Sobres",
         )
         assert result.product_type == "STARTER_DECK"
 
     def test_codigo_dp_gana_a_tag_generico_de_caja(self):
-        # Caso real (2026-08-28, docs/propuesta-mejoras-matching-sesion.md
-        # punto 0/1): "One Piece | DP-07 A Fist of Divine Speed OP-11" con
-        # la tag genérica "Cajas" caía en BOOSTER_BOX en vez de
-        # DOUBLE_PACK -- name+variant a secas no dan ningún tipo (name_only
-        # queda OTROS), así que el tipo actual venía SOLO de la tag, y el
-        # código DP-07 en el propio texto es señal más fiable.
         result = classify_product(
             "One Piece | DP-07 A Fist of Divine Speed OP-11", "Inglés",
             "Caja One Piece, Cajas, One Piece, OP-11 A Fist of Divine Speed",
@@ -479,30 +734,13 @@ class TestExtraTypeHintDeTags:
         assert result.product_type == "DOUBLE_PACK"
         assert result.set_code == "DP07"
 
-    def test_tags_con_case_solo_no_dispara_booster_case(self):
-        # Caso real (Golden Pulls, encontrado en una siembra completa
-        # contra Postgres real, 2026-08-28): "Booster Box Display OP11" no
-        # menciona "case" en ningún sitio del nombre -- solo en sus
-        # `raw_tags` de catálogo ("ace, box, card game, case, luffy, one
-        # piece, op11, selladoingles"), un tag reutilizado y ruidoso, no
-        # una descripción real del producto. Antes de este fix, confirmaba
-        # incorrectamente contra un Case de 12 cajas siendo, con toda
-        # probabilidad, 1 caja suelta ("Display").
-        result = classify_product(
-            "One Piece Card Game: Booster Box Display OP11 - A Fist of Divine Speed", "Default Title",
-            "ace, box, card game, case, luffy, one piece, op11, selladoingles",
-        )
-        assert result.product_type == "BOOSTER_BOX"
-
-    def test_tags_reciclada_no_pisa_una_regla_que_va_despues_en_la_lista(self):
-        # Bug real (2026-08-29, Pokemillon): `raw_tags` es metadato de
-        # catálogo reciclado ENTRE PRODUCTOS SIN RELACIÓN -- este Illustration
-        # Box tenía la tag "PRB-02 The Best vol. 2" (de otro producto
-        # cualquiera), que coincidía con la keyword de PREMIUM_COLLECTION
-        # ("the best vol"). Como PREMIUM_COLLECTION va ANTES que
-        # ILLUSTRATION_BOX en CLASSIFICATION_RULES, sin este fix la tag
-        # ganaba pese a que "Illustration Box" está clarísimo en el propio
-        # `name`. name+variant ahora se prueban ANTES que las tags.
+    def test_tags_reciclada_no_pisa_una_regla_que_ya_resuelve_por_name(self):
+        # `raw_tags` es metadato de catálogo reciclado ENTRE PRODUCTOS SIN
+        # RELACIÓN -- este Illustration Box tenía la tag "PRB-02 The Best
+        # vol. 2" (de otro producto), pero PREMIUM_BOOSTER_BOX exige código/
+        # título PROPIO (tabla exclusiva, Corrección 4) -- ya no puede
+        # colar solo por tener una entrada que casualmente aparece en el
+        # texto combinado.
         result = classify_product(
             "One Piece Illustration Box Vol.6 Law & Rosinante OP13", "Inglés",
             "Caja One Piece, Cajas, One Piece, OP-13 Carrying On His Will, PRB-02 The Best vol. 2",
@@ -511,10 +749,6 @@ class TestExtraTypeHintDeTags:
         assert result.set_code == "VOL06"
 
     def test_tags_reciclada_no_pisa_devil_fruits_collection(self):
-        # Mismo bug, segundo caso real: tag "Cajas" (genérica, de catálogo)
-        # ganaba sobre "Fruta del Diablo" del propio name -- BOOSTER_BOX en
-        # vez de DEVIL_FRUITS_COLLECTION, y el candidato DF-02 solo aparecía
-        # vía fallback cross-categoría (nunca auto-confirma).
         result = classify_product(
             "One Piece | Fruta del Diablo Mera Mera vol. 2 [DF-02]", "Inglés",
             "Caja One Piece, Cajas, Devil Fruit, One Piece",
@@ -522,21 +756,16 @@ class TestExtraTypeHintDeTags:
         assert result.product_type == "DEVIL_FRUITS_COLLECTION"
         assert result.set_code == "DF02"
 
-    def test_tags_sigue_siendo_respaldo_valido_cuando_name_no_resuelve_nada(self):
-        # Control negativo -- el caso que motivó incluir tags en absoluto
-        # (2026-08-27) NO debe romperse: si name+variant se quedan en
-        # OTROS, tags sigue pudiendo resolver el tipo.
+    def test_tags_sigue_siendo_respaldo_valido_para_el_catch_all_generico(self):
+        # Caso donde name+variant NO traen ni código ni keyword de sellado
+        # en absoluto -- ahí las tags siguen aportando valor real (§4.5).
         result = classify_product(
-            "One Piece OP13 Carrying On His Will", "Inglés",
-            "Caja One Piece, Cajas, Cajas de Sobres, One Piece, OP-13 Carrying On His Will",
+            "One Piece Something Without Any Keyword At All", "Default",
+            "Caja One Piece, Cajas, Cajas de Sobres",
         )
-        assert result.product_type == "BOOSTER_BOX"
+        assert result.product_type == "ONE_PIECE"
 
     def test_codigo_dp_en_name_pisa_tag_reciclada_de_sobre(self):
-        # Bug real (2026-08-29, Pokemillon): tags "Sobre One Piece, Sobres"
-        # resolvían BOOSTER_PACK antes de que _DOUBLE_PACK_CODE_RE (gateado
-        # a product_type=="OTROS") tuviera ocasión de ascender a
-        # DOUBLE_PACK pese al código DP-09 explícito en el propio name.
         result = classify_product(
             "One Piece DP09 The Azure Sea's Seven OP14", "Inglés",
             "One Piece, OP-14 The Azure Sea's Seven, Sobre One Piece, Sobres",
@@ -549,8 +778,8 @@ class TestExtraTypeHintDeTags:
             "One Piece OP13 Carrying On His Will", "Inglés",
             "Caja One Piece, Cajas, Cajas de Sobres, One Piece, OP-13 Carrying On His Will",
         )
-        assert classification.product_type == "BOOSTER_BOX"
-        assert category_slug == "booster-box"
+        assert classification.product_type == "ONE_PIECE"
+        assert category_slug == "one-piece"
 
 
 class TestSpanishPrepositionRegression:
@@ -567,17 +796,14 @@ class TestSpanishPrepositionRegression:
         assert _detect_language("Booster Box EN") == "EN"
 
     def test_en_minuscula_dentro_de_otra_palabra_no_matchea(self):
-        # "en" como substring de otra palabra (no un token propio) tampoco
-        # debe disparar el regex \bEN\b (los límites de palabra lo evitan).
         assert _detect_language("Entrada genérica sin idioma") is None
 
 
 class TestJPSueltoAdemasDePalabraCompleta:
-    """2026-08-27, investigación sobre multi_tienda_one_piece.csv real: 9
-    filas reales usan el código suelto "JP" (ej. "...One Piece Tcg [JP]",
-    "...JP Edition") sin la palabra completa "japonés"/"japones" -- \\bJP\\b
-    sobre el texto original, mismo patrón que ya tenía \\bEN\\b para inglés
-    (que a este lado nunca se le había añadido el equivalente)."""
+    """9 filas reales usan el código suelto "JP" (ej. "...One Piece Tcg
+    [JP]", "...JP Edition") sin la palabra completa "japonés"/"japones" --
+    \\bJP\\b sobre el texto original, mismo patrón que ya tenía \\bEN\\b
+    para inglés."""
 
     def test_jp_suelto_entre_corchetes_caso_real(self):
         assert _detect_language("Sobre Booster OP-14: The Azure Sea's Seven - One Piece Tcg [JP]") == "JP"
@@ -586,8 +812,6 @@ class TestJPSueltoAdemasDePalabraCompleta:
         assert _detect_language("One Piece TCG OP16 Booster Box (Japones)") == "JP"
 
     def test_jp_minuscula_dentro_de_otra_palabra_no_matchea(self):
-        # Con \bJP\b sobre el texto ORIGINAL (case-sensitive, como \bEN\b),
-        # "jp" en minúscula dentro de otra palabra no debe disparar nada.
         assert _detect_language("Grupo Jpepe importaciones") is None
 
 
@@ -612,80 +836,71 @@ class TestDetectLanguageOtrosIdiomas:
         assert _detect_language("One Piece Booster Box Español") == "ES"
 
 
-class TestMainSetVsSetCode:
-    """OP16 y OP17 en el mismo título -- re.search se queda con la PRIMERA
-    coincidencia (no hay re.findall). Se documenta el comportamiento
-    explícitamente, no se deja implícito."""
+class TestMainSetSoloParaOnePieceYDoublePack:
+    """main_set (NUEVO, cambio de diseño deliberado respecto al sistema
+    anterior): antes se derivaba de un "OP\\d+" literal buscado en TODO
+    nombre, sin importar el product_type -- ruido para família sin relación
+    real con OP (Illustration Box, Playmat...), nunca usado por el
+    matching. Ahora solo se deriva para ONE_PIECE (=set_code) y DOUBLE_PACK
+    (tabla DP<->OP, Corrección 5) -- cualquier otra família siempre da
+    main_set=None."""
 
-    def test_primera_coincidencia_gana_para_main_set_y_set_code(self):
+    def test_one_piece_dos_codigos_en_el_texto_primera_coincidencia_gana(self):
         result = classify_product("OP16 y OP17 en el mismo título")
-        assert result.main_set == "OP16"
+        assert result.product_type == "ONE_PIECE"
         assert result.set_code == "OP16"
+        assert result.main_set == "OP16"
 
-    def test_preposicion_en_no_se_confunde_con_idioma_en_este_texto(self):
-        # Este texto contiene " en " en minúscula (preposición) en medio de
-        # la frase -- no debe colarse como EN pese a estar rodeado de
-        # códigos de set en mayúscula. Se comprueba _detect_language()
-        # directamente, no classify_product() -- desde el default a EN
-        # (2026-08-27) cuando nadie dice el idioma, el resultado final de
-        # classify_product() para este texto SÍ es "EN" (por el default, no
-        # por la preposición), así que la aserción real de este test vive
-        # en la función de detección, no en el resultado combinado.
-        assert _detect_language("OP16 y OP17 en el mismo título") is None
-
-
-class TestMainSetDigitBoundary:
-    """Límite real de la regex de main_set: \\bOP[\\s-]?0*(\\d{1,2})\\b.
-    El plan original proponía "ST-100 (dos dígitos) vs ST-999 (tres
-    dígitos)" para esto, pero eso no ejercita main_set en absoluto -- esa
-    regex exige literalmente el prefijo "OP", nunca "ST". El límite real
-    que puede fallar es OP-99 (2 dígitos, dentro de \\d{1,2}) frente a
-    OP-100 (3 dígitos): el \\b final después de \\d{1,2} impide un match
-    parcial de solo 2 de los 3 dígitos, así que OP-100 no matchea nada."""
-
-    def test_op_de_dos_digitos_en_el_limite_matchea(self):
-        result = classify_product("Booster Box OP-99")
-        assert result.main_set == "OP99"
-
-    def test_op_de_tres_digitos_no_matchea_por_el_limite_de_dos(self):
+    def test_op_de_tres_digitos_si_matchea_ahora_mismo_limite_que_set_code(self):
+        # A diferencia del sistema anterior (main_set limitado a 1-2
+        # dígitos por una regex propia distinta de la de set_code), ahora
+        # main_set = set_code para ONE_PIECE -- mismo límite (\\d{1,3}) en
+        # los dos, sin asimetría.
         result = classify_product("Booster Box OP-100")
-        assert result.main_set is None
+        assert result.set_code == "OP100"
+        assert result.main_set == "OP100"
 
-    def test_set_code_st_con_tres_digitos_si_matchea_su_propio_limite(self):
-        # set_code (\b([A-Z]{2,3}-?\d{1,3})\b) sí admite hasta 3 dígitos --
-        # a diferencia de main_set, que solo admite prefijo OP y 1-2 dígitos.
+    def test_starter_deck_nunca_deriva_main_set(self):
         result = classify_product("Starter Deck ST-100")
         assert result.set_code == "ST100"
         assert result.main_set is None
 
+    def test_playmat_nunca_deriva_main_set_aunque_mencione_op(self):
+        result = classify_product("One Piece Playmat Limited Edition Vol.1 + 3 Sobres OP-15")
+        assert result.main_set is None
+
+    def test_preposicion_en_no_se_confunde_con_idioma_en_este_texto(self):
+        assert _detect_language("OP16 y OP17 en el mismo título") is None
+
 
 class TestDoublePackPrefiereCodigoDP:
-    """Regresión real (2026-08-27, revisión sobre 53 tiendas): un Double
-    Pack a menudo menciona el set OP-NN que acompaña como contexto ANTES
-    del código DP-NN real -- el prefijo genérico se quedaba con el primero
-    que aparece en el texto (izquierda a derecha), no con el DP real."""
+    """Un Double Pack a menudo menciona el set OP-NN que acompaña como
+    contexto ANTES del código DP-NN real -- el prefijo genérico se quedaba
+    con el primero que aparece en el texto (izquierda a derecha), no con el
+    DP real. main_set se deriva SIEMPRE de la tabla DP<->OP, nunca del OP
+    decorativo del propio texto (Corrección 5)."""
 
     def test_op_antes_que_dp_en_el_texto_se_queda_con_dp(self):
         result = classify_product("One Piece | OP15 Double Pack Set DP-10 Adventure on KAMI's Island")
         assert result.product_type == "DOUBLE_PACK"
         assert result.set_code == "DP10"
-        assert result.main_set == "OP15"  # main_set sigue derivándose por separado, sin cambios
+        assert result.main_set == "OP15"  # DP10 -> OP15 en _DP_TO_OP, coincide con el decorativo aquí
 
     def test_vol_y_op_y_dp_juntos_se_queda_con_dp(self):
         result = classify_product("DOUBLE PACK SET VOL.08 OP-12 DP-08 LEGACY OF THE MASTER ONE PIECE TCG")
         assert result.set_code == "DP08"
+        assert result.main_set == "OP12"  # DP08 -> OP12 en _DP_TO_OP
 
     def test_sin_codigo_dp_en_el_texto_set_code_es_none(self):
-        # Un OP-code decorativo sin DP-code real no debe usarse como si lo
-        # fuera -- mejor None que un match falso.
         result = classify_product("One Piece Card Game Double Pack Set OP-14")
         assert result.set_code is None
+        assert result.main_set is None
 
 
 class TestIllustrationBoxCodigoIB:
-    """Regresión real (2026-08-27, revisión sobre 53 tiendas): Distrito
-    Zero/Gameria etiquetan Illustration Box como "IB-NN", sin la palabra
-    "Vol" en ningún sitio -- _VOLUME_RE (solo "Vol.N") dejaba set_code=None."""
+    """Distrito Zero/Gameria etiquetan Illustration Box como "IB-NN", sin la
+    palabra "Vol" en ningún sitio -- _VOLUME_RE (solo "Vol.N") dejaba
+    set_code=None."""
 
     def test_codigo_ib_con_guion(self):
         result = classify_product("ONE PIECE CARD GAME - ILLUSTRATION BOX IB-06 - EN")
@@ -705,16 +920,29 @@ class TestClassifyWithCategory:
     """classify_with_category() combina classify_product() con el mapeo a
     category.slug -- existe para que api/services/matches.py y matcher.py
     no repitan `PRODUCT_TYPE_TO_CATEGORY_SLUG.get(classification.product_type)`
-    cada uno por su lado (ver decisión de arquitectura sobre shared/)."""
+    cada uno por su lado."""
 
     def test_product_type_con_categoria_sembrada_devuelve_su_slug(self):
         classification, category_slug = classify_with_category("Booster Box OP-16")
-        assert classification.product_type == "BOOSTER_BOX"
-        assert category_slug == "booster-box"
+        assert classification.product_type == "ONE_PIECE"
+        assert category_slug == "one-piece"
 
     def test_not_applicable_product_type_devuelve_slug_none(self):
         classification, category_slug = classify_with_category("Lote 50 cartas sueltas")
         assert classification.product_type == "LOTE_CARTAS"
+        assert category_slug is None
+
+    @pytest.mark.parametrize("raw_name,expected_type", [
+        ("Mystery Pack One Piece", "MYSTERY_PACK"),
+        ("One Piece Dice Set", "DICE_ACCESSORY"),
+        ("One Piece Promo Card OP-01", "PROMO_CARD"),
+    ])
+    def test_familias_de_fase_0_nunca_tienen_categoria(self, raw_name, expected_type):
+        # PROMO_CARD/MYSTERY_PACK/DICE_ACCESSORY suben a Fase 0 (NUEVO,
+        # cierra §2 de la propuesta) -- ya no tienen categoría sembrada, a
+        # diferencia del sistema anterior.
+        classification, category_slug = classify_with_category(raw_name)
+        assert classification.product_type == expected_type
         assert category_slug is None
 
     def test_variant_title_se_propaga_igual_que_en_classify_product(self):
@@ -723,10 +951,13 @@ class TestClassifyWithCategory:
 
 
 class TestDFCodePorPatronDeCodigo:
-    """docs/propuesta-mejoras-matching-sesion.md punto 1 -- DF-NN identifica
-    Devil Fruits Collection sin depender de la keyword en inglés ("devil
-    fruits collection"), verificado como prefijo exclusivo en las 194
-    líneas del catálogo oficial completo."""
+    """DF-NN identifica Devil Fruits Collection sin depender de la keyword
+    en inglés ("devil fruits collection"), verificado como prefijo
+    exclusivo en las 194 líneas del catálogo oficial completo. Es la
+    PRIMERA família comprobada en Fase 2 -- se activa por su propio código,
+    sin depender de que ninguna otra família haya fallado antes (a
+    diferencia del sistema anterior, donde este fallback solo se probaba si
+    name+variant se quedaban en OTROS)."""
 
     @pytest.mark.parametrize("raw_name,esperado_set_code", [
         ("One Piece | Fruta del Diablo vol.1 [DF-01] Inglés 2023", "DF01"),
@@ -739,9 +970,6 @@ class TestDFCodePorPatronDeCodigo:
         assert c.set_code == esperado_set_code
 
     def test_df_code_gana_pese_a_tag_generico_de_caja(self):
-        # Caso real (2026-08-28): la tienda tiene "Cajas" como tag de
-        # catálogo genérico -- sin el código como señal, esto colaba como
-        # BOOSTER_BOX en vez de DEVIL_FRUITS_COLLECTION.
         c = classify_product(
             "One Piece | DF03 Fruta del Diablo Ope Ope No Mi vol. 3  OP12", "Inglés",
             "Black Friday, Caja One Piece, Cajas, Devil Fruit, One Piece",
@@ -749,38 +977,10 @@ class TestDFCodePorPatronDeCodigo:
         assert c.product_type == "DEVIL_FRUITS_COLLECTION"
         assert c.set_code == "DF03"
 
-    def test_keyword_real_en_el_nombre_sigue_ganando_al_codigo(self):
-        # Si el propio nombre YA trae una keyword real de otro tipo, esa
-        # señal manda -- el código DF-NN no debe poder pisarla (el override
-        # solo se dispara cuando name+variant a secas no dicen nada).
+    def test_df_code_gana_a_keyword_generica_de_otra_familia_reclasificacion_del_rediseno(self):
+        # Ver TestClassifyProductTable id=df-code-activa-su-familia-...
+        # -- documentado aquí también porque es la contraparte directa del
+        # test que en el sistema anterior fijaba justo el comportamiento
+        # opuesto (BOOSTER_BOX ganaba al código DF-NN).
         c = classify_product("Booster Box Something DF-01", None)
-        assert c.product_type == "BOOSTER_BOX"
-
-
-class TestRangoDeCodigos:
-    """docs/propuesta-mejoras-matching-sesion.md punto 2 -- un rango de
-    códigos ("ST-15 - ST-20", "[ST-31]~[ST-36]") describe un pack ligado a
-    TODO un lote de mazos, no a uno solo -- extraer el primer extremo como
-    si fuera el código propio dispara el fallback cross-categoría contra
-    un Starter Deck completamente ajeno."""
-
-    @pytest.mark.parametrize("raw_name", [
-        "One Piece Sobre ST-15 - ST-20 Release Event Pack",
-        "One Piece Sobre Beginners Deck Party ST-31 - ST-36 Participation Pack",
-        "One Piece Sobre Beginners Deck Party [ST-31]~[ST-36] Winner pack",
-    ])
-    def test_rango_de_codigos_no_extrae_el_primer_extremo(self, raw_name):
-        c = classify_product(raw_name)
-        assert c.set_code is None
-
-    def test_codigo_de_carta_individual_no_se_confunde_con_rango(self):
-        # Regresión encontrada al validar el punto 2: "OP10-058" (numeración
-        # de carta individual dentro de un set, no un rango entre dos sets)
-        # NO debe perder su set_code -- ya cubierto por LOTE_CARTAS/CGC,
-        # pero el propio código debe seguir extrayéndose bien.
-        c = classify_product("Rebecca (OP10-058) (V.1) Royal Blood (Non-English)", "CGC 10")
-        assert c.set_code == "OP10"
-
-    def test_codigo_eb_de_carta_individual_no_se_confunde_con_rango(self):
-        c = classify_product("ONE PIECE CHOPPER’s Vol. 1 carta/comic promocional EB02-003", "")
-        assert c.set_code == "EB02"
+        assert c.product_type == "DEVIL_FRUITS_COLLECTION"

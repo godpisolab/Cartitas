@@ -184,12 +184,21 @@ class Product:
 class Classification:
     """Resultado de classify_product() (ver classify.py): a qué categoría/
     set/idioma pertenece un producto, deducido de su nombre (y opcionalmente
-    del título de variante)."""
+    del título de variante).
+
+    `packaging` (Recognition Pipeline, docs/propuestas/guia_nuevo_matcher.md):
+    "display" | "case" | "sobre" | None -- sustituye a la antigua separación
+    caja/sobre/case POR CATEGORÍA (BOOSTER_BOX/BOOSTER_PACK/BOOSTER_CASE) por
+    un campo de primera clase, calculado dentro de Fase 2 para las família
+    que lo necesitan (ONE_PIECE/EXTRA_BOOSTER/PREMIUM_BOOSTER_BOX/STARTER_DECK/
+    DOUBLE_PACK). None para família de unidad única (Playmat, Sleeves,
+    Illustration Box, Devil Fruits Collection...)."""
 
     product_type: str
     set_code: Optional[str]
     language: Optional[str]
     main_set: Optional[str]
+    packaging: Optional[str] = None
 
 
 @dataclass

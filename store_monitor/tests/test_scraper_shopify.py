@@ -89,7 +89,7 @@ class TestShopifyScraper:
         products = scraper.scrape()
         assert len(products) == 1
         assert products[0].tags == "Caja One Piece, Cajas, Cajas de Sobres, OP-13 Carrying On His Will"
-        assert products[0].product_type == "BOOSTER_BOX"
+        assert products[0].product_type == "ONE_PIECE"
 
     def test_tags_como_lista_json_se_normaliza_a_string(self, requests_mock):
         # Regresión real (2026-08-27, ejecución completa contra 53 tiendas):
@@ -110,7 +110,7 @@ class TestShopifyScraper:
         products = scraper.scrape()
         assert len(products) == 1
         assert products[0].tags == "Caja One Piece, Cajas, Cajas de Sobres"
-        assert products[0].product_type == "BOOSTER_BOX"
+        assert products[0].product_type == "ONE_PIECE"
 
     def test_sin_tags_del_comerciante_products_tags_es_none(self, requests_mock):
         scraper = make_scraper()
