@@ -35,6 +35,7 @@ class ProductSummary(CamelModel):
     category: str
     set_code: str | None
     language: ProductLanguage | None
+    packaging: str | None
     # Nullable, no float a secas -- un store_product confirmado puede tener
     # current_price NULL (preventa, o el scraper no pudo parsear el precio
     # esa pasada), y MIN() sobre un grupo así de NULLs es NULL, no 0 -- ver
@@ -61,6 +62,7 @@ class ProductDetail(CamelModel):
     set_code: str | None
     main_set: str | None
     language: ProductLanguage | None
+    packaging: str | None
     listings: list[Listing]
 
 
@@ -82,6 +84,7 @@ class ProductCreate(CamelModel):
     set_code: str | None = None
     main_set: str | None = None
     language: ProductLanguage | None = None
+    packaging: str | None = None
     name_canonical: str
     image_url: str | None = None
     is_hot: bool = False

@@ -28,6 +28,7 @@ import os
 from fastapi import FastAPI, Header, HTTPException
 
 import live_progress
+import matcher
 import persistence
 import run_results
 import scheduler
@@ -87,6 +88,25 @@ def trigger_single_store(label: str, persist: bool = False, authorization: str |
     except ValueError:
         raise HTTPException(status_code=404, detail=f"tienda desconocida: {label}")
     return {"run_id": run_id}
+
+
+@app.post("/jobs/run-matching")
+def trigger_run_matching(authorization: str | None = Header(None)) -> dict:
+    """Relanza matcher.run_matching() sobre todas las filas no confirmadas
+    (needs_review + unmatched -- la propia query de run_matching excluye
+    'confirmed', ver matcher.py) contra el catálogo canónico actual. A
+    diferencia de los /jobs/* de scraping, esto no dispara red ni tarda
+    minutos (una pasada de SQL sobre store_product), así que se ejecuta
+    síncrono y devuelve los contadores directamente -- no hace falta la
+    maquinaria de scrape_run/scheduler (progreso, hilo de fondo, historial)
+    pensada para scrapes que sí tardan."""
+    _check_auth(authorization)
+    conn = persistence.get_connection()
+    try:
+        counts = matcher.run_matching(conn)
+    finally:
+        conn.close()
+    return {"counts": counts}
 
 
 @app.get("/jobs/runs")

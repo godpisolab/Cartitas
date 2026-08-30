@@ -10,6 +10,7 @@
         <th>Código de set</th>
         <th>Set principal</th>
         <th>Idioma</th>
+        <th>Empaquetado</th>
         <th>Tiendas</th>
         <th>Acción</th>
       </tr>
@@ -21,15 +22,16 @@
           <td>{{ item.set_code or "—" }}</td>
           <td>{{ item.main_set or "—" }}</td>
           <td>{{ item.language or "—" }}</td>
+          <td>{{ item.packaging or "—" }}</td>
           <td>{{ item.store_count }}</td>
           <td>
-            <a href="/admin/products/new?productType={{ item.product_type | urlencode }}&setCode={{ (item.set_code or '') | urlencode }}&mainSet={{ (item.main_set or '') | urlencode }}&language={{ (item.language or '') | urlencode }}">
+            <a href="/admin/products/new?productType={{ item.product_type | urlencode }}&setCode={{ (item.set_code or '') | urlencode }}&mainSet={{ (item.main_set or '') | urlencode }}&language={{ (item.language or '') | urlencode }}&packaging={{ (item.packaging or '') | urlencode }}">
               Crear canónico
             </a>
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="5">No hay combinaciones sin candidato por ahora.</td></tr>
+        <tr><td colspan="6">No hay combinaciones sin candidato por ahora.</td></tr>
       {% endfor %}
     </tbody>
   </table>

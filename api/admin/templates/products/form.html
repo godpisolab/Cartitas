@@ -27,12 +27,21 @@
           {% endfor %}
         </select>
       </label>
+      <label>Empaquetado
+        <select name="packaging">
+          <option value="">—</option>
+          {% for p in ("sobre", "display", "case") %}
+            <option value="{{ p }}" {{ "selected" if p == selected_packaging }}>{{ p }}</option>
+          {% endfor %}
+        </select>
+      </label>
     {% else %}
       <p><strong>Juego:</strong> {{ product.game_id }} <small>(no editable)</small></p>
       <p><strong>Categoría:</strong> {{ product.category_id }} <small>(no editable)</small></p>
       <p><strong>Código de set:</strong> {{ product.set_code or "—" }} <small>(no editable)</small></p>
       <p><strong>Set principal:</strong> {{ product.main_set or "—" }} <small>(no editable)</small></p>
       <p><strong>Idioma:</strong> {{ product.language or "—" }} <small>(no editable)</small></p>
+      <p><strong>Empaquetado:</strong> {{ product.packaging or "—" }} <small>(no editable)</small></p>
     {% endif %}
 
     <label>Nombre canónico

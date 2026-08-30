@@ -64,7 +64,7 @@ El panel de gestor se da por cerrado cuando:
 
 ### 1.3 Vista de `missing-candidates`
 
-**Qué construir:** página nueva `GET /admin/missing-candidates`, listando lo que ya devuelve `matches_service.missing_candidates()`, con un enlace "Crear canónico" por fila que preellene el formulario de alta de producto (sección 1.4) vía query params (`?productType=BOOSTER_BOX&mainSet=OP17&language=EN`).
+**Qué construir:** página nueva `GET /admin/missing-candidates`, listando lo que ya devuelve `matches_service.missing_candidates()`, con un enlace "Crear canónico" por fila que preellene el formulario de alta de producto (sección 1.4) vía query params (`?productType=ONE_PIECE&mainSet=OP17&language=EN&packaging=display`).
 
 ```python
 # admin/routes/matches.py
@@ -102,7 +102,7 @@ api/admin/
 - `test_alta_producto_desde_panel_devuelve_redirect_a_ficha` (o al listado — decidir el flujo de UX: tras crear, ¿a dónde va?).
 - `test_alta_producto_duplicado_muestra_error_en_formulario` — mismo `nameCanonical`+`gameId` ya existente → el formulario vuelve a mostrarse con el mensaje de error, no una página de error genérica de FastAPI.
 - `test_editar_marca_is_hot_correctamente` — comprobar en BBDD que `is_hot`/`hot_until` cambian tras el POST.
-- `test_formulario_alta_preellenado_desde_query_params` — visitar `/admin/products/new?productType=BOOSTER_BOX&mainSet=OP17` y comprobar que esos valores aparecen ya puestos en el HTML del formulario.
+- `test_formulario_alta_preellenado_desde_query_params` — visitar `/admin/products/new?productType=ONE_PIECE&mainSet=OP17&packaging=display` y comprobar que esos valores aparecen ya puestos en el HTML del formulario.
 
 ### 1.5 Panel de tiendas — listado, detalle, edición
 

@@ -74,6 +74,30 @@ class TestTriggers:
         with pytest.raises(BadGatewayError):
             jobs_service.trigger_daily_sweep()
 
+    def test_trigger_run_matching_devuelve_los_contadores(self, monkeypatch):
+        mock_request = MagicMock(return_value=fake_response(
+            json_body={"counts": {"confirmed": 3, "needs_review": 1}}
+        ))
+        monkeypatch.setattr(httpx, "request", mock_request)
+
+        counts = jobs_service.trigger_run_matching()
+
+        assert counts == {"confirmed": 3, "needs_review": 1}
+        args, _kwargs = mock_request.call_args
+        assert args[1].endswith("/jobs/run-matching")
+
+    def test_trigger_run_matching_usa_un_timeout_mas_largo(self, monkeypatch):
+        # No es un scrape (sin red), pero sí una pasada de SQL sobre el
+        # catálogo entero -- el timeout corto de las demás llamadas
+        # (crear/consultar una fila) se queda corto aquí.
+        mock_request = MagicMock(return_value=fake_response(json_body={"counts": {}}))
+        monkeypatch.setattr(httpx, "request", mock_request)
+
+        jobs_service.trigger_run_matching()
+
+        assert mock_request.call_args.kwargs["timeout"] == jobs_service._RUN_MATCHING_TIMEOUT
+        assert mock_request.call_args.kwargs["timeout"] != jobs_service._TIMEOUT
+
 
 class TestReads:
     def test_get_run_devuelve_el_dict_tal_cual(self, monkeypatch):

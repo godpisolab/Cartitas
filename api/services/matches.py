@@ -29,9 +29,9 @@ from sqlmodel import Session, select
 from shared.classify import (
     NOT_APPLICABLE_PRODUCT_TYPES,
     PRODUCT_TYPE_TO_CATEGORY_SLUG,
+    SET_CODE_PREFIXES,
     classify_product,
     classify_with_category,
-    is_box_variant,
 )
 from errors import ConflictError, NotFoundError, UnprocessableEntityError
 from models.category import Category
@@ -53,6 +53,19 @@ from schemas.matches import (
 
 TOP_CANDIDATES_LIMIT = 3
 
+# Mismo umbral que usa por defecto GET /admin/missing-candidates (minStores)
+# -- list_matches() lo reutiliza para decidir qué huecos de catálogo ocultar
+# de la cola de revisión (ver hide_catalog_gaps en MatchFilters). Un umbral
+# más bajo aquí escondería ruido de una sola tienda como si fuera un hueco
+# real confirmado.
+MISSING_CANDIDATE_MIN_STORES = 2
+
+# Coincide con el ENUM product_language del esquema
+# (schema-postgresql-app-tcg.sql) -- _detect_language() en shared/classify.py
+# puede devolver otros valores (ej. "KR", coreano) que el esquema no admite;
+# ver _top_candidates() para el motivo de por qué hace falta esta lista aquí.
+_VALID_DB_LANGUAGES = {"EN", "JP", "ES"}
+
 
 def _category_id_for_slug(session: Session, slug: str | None) -> int | None:
     if slug is None:
@@ -62,48 +75,53 @@ def _category_id_for_slug(session: Session, slug: str | None) -> int | None:
 
 def _top_candidates(
     session: Session, category_id: int | None, raw_name: str,
-    set_code: str | None = None, language: str | None = None,
+    set_code: str | None = None, language: str | None = None, packaging: str | None = None,
 ) -> list[MatchCandidate]:
     """Top-3 por similarity, con el mismo desempate por set_code exacto que
-    ya usa store_monitor/matcher.py::_best_candidate() (revisión de la cola
-    de matching, 2026-08-27): varios raw_names de la misma familia comparten
-    casi todo el texto salvo el código (ej. "Starter Deck ONE PIECE FILM
-    edition ST-05", reutilizado como plantilla, gana en similarity() pura a
-    la variante concreta correcta) -- cuando el raw_name trae un código
-    reconocible, el candidato de ESE código sale primero en la lista que ve
-    quien revisa, no enterrado en el puesto #2 o #3.
+    ya usa store_monitor/matcher.py::_best_candidate(): varios raw_names de
+    la misma familia comparten casi todo el texto salvo el código (ej.
+    "Starter Deck ONE PIECE FILM edition ST-05", reutilizado como plantilla,
+    gana en similarity() pura a la variante concreta correcta) -- cuando el
+    raw_name trae un código reconocible, el candidato de ESE código sale
+    primero en la lista que ve quien revisa, no enterrado en el puesto #2 o
+    #3.
 
-    Desempate por IDIOMA EXACTO (2026-08-28, mismo hallazgo que
-    matcher._best_candidate): un set_code trae casi siempre un canónico EN
-    y otro JP con texto casi idéntico, así que similarity() los deja
-    prácticamente empatados -- sin esto, el candidato #1 que ve quien
-    revisa puede ser el idioma que NO coincide con lo que la tienda
-    declaró, y es justo el que _evaluate() usaría para decidir (mismo
-    criterio de orden en los dos sitios, a propósito). Va DESPUÉS de
-    set_code y ANTES de caja/sobre -- mismo razonamiento que en
-    matcher.py: idioma distinto es un producto distinto, caja/sobre es una
-    distinción más fina dentro del mismo producto."""
+    Desempate por IDIOMA EXACTO (mismo hallazgo que matcher._best_candidate):
+    un set_code trae casi siempre un canónico EN y otro JP con texto casi
+    idéntico, así que similarity() los deja prácticamente empatados -- sin
+    esto, el candidato #1 que ve quien revisa puede ser el idioma que NO
+    coincide con lo que la tienda declaró, y es justo el que _evaluate()
+    usaría para decidir (mismo criterio de orden en los dos sitios, a
+    propósito). Va DESPUÉS de set_code y ANTES de packaging -- mismo
+    razonamiento que en matcher.py: idioma distinto es un producto
+    distinto, packaging es una distinción más fina dentro del mismo
+    producto."""
     if category_id is None:
         return []
+    if language not in _VALID_DB_LANGUAGES:
+        # classify_product() puede detectar idiomas que el ENUM
+        # product_language de Postgres no admite (ej. "KR", coreano -- ver
+        # _detect_language en shared/classify.py) -- comparar ese valor tal
+        # cual contra la columna `language` revienta la query en Postgres
+        # (psycopg2.errors.InvalidTextRepresentation), encontrado real
+        # contra un raw_name real ("...CAJA SOBRES COREANO"). Se trata como
+        # "idioma no detectado" para ESTA consulta -- degradación segura,
+        # mismo comportamiento que language=None ya tenía.
+        language = None
     similarity = func.similarity(Product.name_canonical, raw_name)
     order_by = [similarity.desc()]
 
-    # Desempate por CAJA/SOBRE (is_box_variant): dentro de una MISMA
-    # categoría+set_code puede convivir la variante caja y la de un sobre
-    # suelto ("Premium Booster"/"Premium Booster Box", ambas PRB-02, misma
-    # categoría premium-collection) -- antes de esta señal, similarity()
-    # podía preferir la variante equivocada.
-    # Solo se comprueba "box" en el lado del candidato (no "caja") --
-    # name_canonical está siempre en inglés (verificado: 0 filas con "caja"
-    # en el catálogo), a diferencia de raw_name que sí puede venir en
-    # español y por eso is_box_variant() comprueba ambas palabras ahí.
-    is_box = is_box_variant(raw_name)
-    if is_box is not None:
-        box_match = case(
-            (Product.name_canonical.ilike("%box%") == is_box, 1),
-            else_=0,
-        )
-        order_by.insert(0, box_match.desc())
+    # Desempate por PACKAGING (columna product.packaging, NUEVO -- sustituye
+    # a la antigua comparación de texto is_box_variant()/ILIKE '%box%'):
+    # dentro de una MISMA categoría+set_code puede convivir la variante
+    # sobre y la de caja completa ("Premium Booster"/"Premium Booster Box",
+    # ambas PRB-02, misma categoría premium-booster-box) -- sin esta señal,
+    # similarity() podía preferir la variante equivocada. Mismo orden que
+    # matcher._best_candidate() a propósito -- los dos sitios deben coincidir
+    # en qué candidato consideran "el mejor".
+    if packaging:
+        packaging_match = case((Product.packaging == packaging, 1), else_=0)
+        order_by.insert(0, packaging_match.desc())
 
     if language:
         # CASE explícito por el mismo motivo que set_code_match más abajo:
@@ -134,8 +152,18 @@ def _top_candidates(
     # mejor candidato de TODO el catálogo con ese set_code -- para que la
     # cola de revisión muestre el canónico correcto aunque la tienda lo
     # haya clasificado en una categoría distinta a como se sembró.
-    if set_code and not any(sc == set_code for _, _, sc, _ in rows):
+    #
+    # SOLO para prefijos REALMENTE asignados por Bandai (SET_CODE_PREFIXES)
+    # -- "VOL{NN}" es un pseudo-código inventado por este proyecto y
+    # reutilizado de forma independiente por Illustration Box/Sleeves/
+    # Playmat/Premium Card Collection, así que un "VOL09" de una família no
+    # tiene NADA que ver con el "VOL09" de otra. Sin esta guarda (bug real
+    # 2026-08-30), este fallback sugería "Official Sleeves 9" como
+    # candidato de una fila real de "Illustration Box IB-09".
+    if set_code and set_code.startswith(SET_CODE_PREFIXES) and not any(sc == set_code for _, _, sc, _ in rows):
         fallback_order_by = [similarity.desc()]
+        if packaging:
+            fallback_order_by.insert(0, case((Product.packaging == packaging, 1), else_=0).desc())
         if language:
             fallback_order_by.insert(0, case((Product.language == language, 1), else_=0).desc())
         cross_category_row = session.exec(
@@ -158,7 +186,9 @@ def _candidates_for(
 ) -> list[MatchCandidate]:
     classification, category_slug = classify_with_category(raw_name, raw_variant, raw_tags)
     category_id = _category_id_for_slug(session, category_slug)
-    return _top_candidates(session, category_id, raw_name, classification.set_code, classification.language)
+    return _top_candidates(
+        session, category_id, raw_name, classification.set_code, classification.language, classification.packaging
+    )
 
 
 def _to_item(store_product: StoreProduct, store: Store, candidates: list[MatchCandidate]) -> MatchItem:
@@ -181,6 +211,15 @@ def _get_or_404(session: Session, store_product_id: int) -> StoreProduct:
     return store_product
 
 
+def _missing_candidate_keys(session: Session, min_stores: int) -> set[tuple]:
+    """Claves (product_type, set_code, language, packaging) de huecos de
+    catálogo YA CONOCIDOS -- reutiliza missing_candidates() (misma fuente de
+    verdad, ninguna lógica de agrupación duplicada) para que list_matches()
+    pueda esconderlas de la cola de revisión (ver docstring de
+    hide_catalog_gaps en MatchFilters para el porqué)."""
+    return {(i.product_type, i.set_code, i.language, i.packaging) for i in missing_candidates(session, min_stores)}
+
+
 def list_matches(session: Session, filters: MatchFilters) -> Page[MatchItem]:
     query = select(StoreProduct, Store).join(Store, Store.id == StoreProduct.store_id)
 
@@ -198,6 +237,18 @@ def list_matches(session: Session, filters: MatchFilters) -> Page[MatchItem]:
 
     rows = session.exec(query.order_by(StoreProduct.id)).all()
 
+    # Huecos de catálogo conocidos (ej. "IB-09"/"OP18" sin canónico
+    # sembrado): needs_review/unmatched ahí es la clasificación CORRECTA,
+    # sin nada que un revisor pueda hacer hasta que se siembre el canónico
+    # -- se autorresuelven solos en cuanto exista (missing_candidates() deja
+    # de listarlos, y la fila vuelve a aparecer normal). Nunca se esconden
+    # de "all" ni de "confirmed" -- "all" es la vista de auditoría completa
+    # a propósito (docs/propuestas/propuesta-scraping-manual-panel.md, bug
+    # real 2026-08-28 de paginación silenciosa), y "confirmed" no calcula
+    # candidatos de todos modos.
+    hide_gaps = filters.status in ("needsReview", "unmatched") and not filters.include_catalog_gaps
+    gap_keys = _missing_candidate_keys(session, MISSING_CANDIDATE_MIN_STORES) if hide_gaps else set()
+
     items: list[MatchItem] = []
     for store_product, store in rows:
         if store_product.match_status == MatchStatus.CONFIRMED:
@@ -206,7 +257,17 @@ def list_matches(session: Session, filters: MatchFilters) -> Page[MatchItem]:
             items.append(_to_item(store_product, store, candidates=[]))
             continue
 
-        candidates = _candidates_for(session, store_product.raw_name, store_product.raw_variant, store_product.raw_tags)
+        classification = classify_product(store_product.raw_name, store_product.raw_variant, store_product.raw_tags)
+        if hide_gaps:
+            key = (classification.product_type, classification.set_code, classification.language, classification.packaging)
+            if key in gap_keys:
+                continue
+
+        category_id = _category_id_for_slug(session, PRODUCT_TYPE_TO_CATEGORY_SLUG.get(classification.product_type))
+        candidates = _top_candidates(
+            session, category_id, store_product.raw_name,
+            classification.set_code, classification.language, classification.packaging,
+        )
         best_score = candidates[0].similarity if candidates else None
 
         if filters.min_similarity is not None and (best_score is None or best_score < filters.min_similarity):
@@ -285,16 +346,22 @@ def reopen_match(session: Session, store_product_id: int) -> MatchItem:
 def missing_candidates(session: Session, min_stores: int) -> list[MissingCandidateItem]:
     """Puerto de matcher.find_missing_canonical_candidates() (C.1) sobre
     SQLModel -- agrupa lo NO confirmado por (product_type, set_code,
-    language) derivados de raw_name/raw_variant/raw_tags, e ignora
-    combinaciones donde ya existe un product candidato en esa
-    categoría+set_code.
+    language, packaging) derivados de raw_name/raw_variant/raw_tags, e
+    ignora combinaciones donde ya existe un product candidato en esa
+    categoría+set_code+packaging.
 
-    set_code, no main_set (2026-08-27, mismo motivo que
-    matcher.find_missing_canonical_candidates): Double Pack e Illustration
-    Box tienen set_code propio pero main_set=NULL en sus canónicos --
-    agrupar/comprobar por main_set generaba falsos positivos. main_set se
-    sigue derivando por grupo solo para prellenar el formulario de alta
-    (sección 1.3), nunca para decidir si ya existe candidato."""
+    `packaging` en la clave de agrupación (NUEVO): con ONE_PIECE/
+    EXTRA_BOOSTER/PREMIUM_BOOSTER_BOX unificando sobre/display/case en una
+    única categoría, agrupar solo por (product_type, set_code, language)
+    escondería que falta sembrar la variante 'display' aunque la 'sobre' ya
+    exista -- son productos de precio completamente distinto (mismo cambio
+    que matcher.find_missing_canonical_candidates).
+
+    set_code, no main_set: Double Pack tiene set_code propio pero
+    main_set se deriva por separado (tabla DP<->OP) -- agrupar/comprobar por
+    main_set generaba falsos positivos. main_set se sigue derivando por
+    grupo solo para prellenar el formulario de alta (sección 1.3), nunca
+    para decidir si ya existe candidato."""
     rows = session.exec(
         select(StoreProduct.store_id, StoreProduct.raw_name, StoreProduct.raw_variant, StoreProduct.raw_tags)
         .where(StoreProduct.match_status != MatchStatus.CONFIRMED)
@@ -306,12 +373,12 @@ def missing_candidates(session: Session, min_stores: int) -> list[MissingCandida
         classification = classify_product(raw_name, raw_variant, raw_tags)
         if classification.product_type in NOT_APPLICABLE_PRODUCT_TYPES:
             continue
-        key = (classification.product_type, classification.set_code, classification.language)
+        key = (classification.product_type, classification.set_code, classification.language, classification.packaging)
         groups.setdefault(key, set()).add(store_id)
         main_sets[key] = classification.main_set
 
     suggestions = []
-    for (product_type, set_code, language), store_ids in groups.items():
+    for (product_type, set_code, language, packaging), store_ids in groups.items():
         if len(store_ids) < min_stores:
             continue
 
@@ -321,23 +388,33 @@ def missing_candidates(session: Session, min_stores: int) -> list[MissingCandida
         if category_id is not None:
             has_candidate = session.exec(
                 select(Product.id).where(
-                    Product.category_id == category_id, Product.set_code.is_not_distinct_from(set_code),
+                    Product.category_id == category_id,
+                    Product.set_code.is_not_distinct_from(set_code),
+                    Product.packaging.is_not_distinct_from(packaging),
                 )
             ).first() is not None
 
         # Mismo fallback cross-categoría que _top_candidates()/matcher.py
         # (caso PRB02): un candidato con ese set_code exacto en OTRA
-        # categoría no es un hueco real del catálogo.
-        if not has_candidate and set_code is not None:
+        # categoría no es un hueco real del catálogo. SOLO para prefijos
+        # REALMENTE asignados por Bandai (SET_CODE_PREFIXES) -- "VOL{NN}" es
+        # un pseudo-código inventado por este proyecto y reutilizado de
+        # forma independiente por Illustration Box/Sleeves/Playmat/Premium
+        # Card Collection, así que un "VOL09" de Sleeves NUNCA cuenta como
+        # "ya existe canónico" para un hueco real de Illustration Box VOL09
+        # (bug real 2026-08-30, encontrado porque esto escondía el hueco).
+        if not has_candidate and set_code is not None and set_code.startswith(SET_CODE_PREFIXES):
             has_candidate = session.exec(
-                select(Product.id).where(Product.set_code == set_code)
+                select(Product.id).where(
+                    Product.set_code == set_code, Product.packaging.is_not_distinct_from(packaging),
+                )
             ).first() is not None
 
         if not has_candidate:
             suggestions.append(MissingCandidateItem(
                 product_type=product_type, set_code=set_code,
-                main_set=main_sets[(product_type, set_code, language)],
-                language=language, store_count=len(store_ids),
+                main_set=main_sets[(product_type, set_code, language, packaging)],
+                language=language, packaging=packaging, store_count=len(store_ids),
             ))
 
     return sorted(suggestions, key=lambda s: s.store_count, reverse=True)

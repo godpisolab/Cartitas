@@ -51,11 +51,12 @@ def new_product_form(
     setCode: str | None = Query(default=None),
     mainSet: str | None = Query(default=None),
     language: str | None = Query(default=None),
+    packaging: str | None = Query(default=None),
     session: Session = Depends(get_session),
 ):
     # Prellenado desde el enlace "Crear canónico" de missing-candidates
     # (docs/plan-cierre-panel-gestor.md sección 1.3): productType llega como
-    # el código de shared.classify (p.ej. "BOOSTER_BOX"), hay que resolverlo
+    # el código de shared.classify (p.ej. "ONE_PIECE"), hay que resolverlo
     # a category_id vía el mismo mapeo que ya usa services/matches.py.
     category_slug = PRODUCT_TYPE_TO_CATEGORY_SLUG.get(productType) if productType else None
     categories = catalog_service.list_categories_flat(session)
@@ -65,7 +66,8 @@ def new_product_form(
     context.update({
         "mode": "create", "action": "/admin/products", "error": None,
         "selected_category_id": selected_category_id, "selected_language": language or "",
-        "name_canonical": "", "set_code": setCode or "", "main_set": mainSet or "", "image_url": "",
+        "name_canonical": "", "set_code": setCode or "", "main_set": mainSet or "",
+        "selected_packaging": packaging or "", "image_url": "",
         "is_hot": False, "hot_until": "",
     })
     return templates.TemplateResponse(request, "products/form.html", context)
@@ -79,6 +81,7 @@ def create_product(
     set_code: str = Form(""),
     main_set: str = Form(""),
     language: str = Form(""),
+    packaging: str = Form(""),
     name_canonical: str = Form(...),
     image_url: str = Form(""),
     is_hot: bool = Form(False),
@@ -86,7 +89,8 @@ def create_product(
 ):
     data = ProductCreate(
         game_id=game_id, category_id=category_id, set_code=set_code or None, main_set=main_set or None,
-        language=language or None, name_canonical=name_canonical, image_url=image_url or None, is_hot=is_hot,
+        language=language or None, packaging=packaging or None,
+        name_canonical=name_canonical, image_url=image_url or None, is_hot=is_hot,
     )
     try:
         product = products_service.create_product(session, data)
@@ -98,7 +102,7 @@ def create_product(
             "mode": "create", "action": "/admin/products", "error": e.detail,
             "selected_category_id": category_id, "selected_language": language,
             "name_canonical": name_canonical, "set_code": set_code, "main_set": main_set,
-            "image_url": image_url, "is_hot": is_hot, "hot_until": "",
+            "selected_packaging": packaging, "image_url": image_url, "is_hot": is_hot, "hot_until": "",
         })
         return templates.TemplateResponse(request, "products/form.html", context, status_code=409)
 
@@ -114,7 +118,8 @@ def edit_product_form(request: Request, product_id: int, session: Session = Depe
         "selected_category_id": product.category_id,
         "selected_language": product.language or "",
         "name_canonical": product.name_canonical, "set_code": product.set_code or "",
-        "main_set": product.main_set or "", "image_url": product.image_url or "",
+        "main_set": product.main_set or "", "selected_packaging": product.packaging or "",
+        "image_url": product.image_url or "",
         "is_hot": product.is_hot, "hot_until": product.hot_until.isoformat() if product.hot_until else "",
         "product": product,
     })

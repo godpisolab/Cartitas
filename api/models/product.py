@@ -27,6 +27,10 @@ class Product(SQLModel, table=True):
     category_id: int = Field(foreign_key="category.id")
     set_code: str | None = None
     main_set: str | None = None
+    # 'display' | 'case' | 'sobre' | None (Recognition Pipeline) -- sustituye
+    # a la antigua separación caja/sobre/case por categoría, ver
+    # schema-postgresql-app-tcg.sql.
+    packaging: str | None = None
     language: ProductLanguage | None = Field(
         default=None,
         sa_column=Column(PGEnum("EN", "JP", "ES", name="product_language", create_type=False)),

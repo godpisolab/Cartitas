@@ -1,0 +1,35 @@
+<div id="matches-wrapper">
+  {% if error %}<div class="form-error">⚠️ {{ error }}</div>{% endif %}
+  {% if message %}<p class="form-message">{{ message }}</p>{% endif %}
+  <table class="matches-table">
+    <thead>
+      <tr>
+        <th>Tienda</th>
+        <th>Nombre en tienda</th>
+        <th>Precio</th>
+        <th>Estado</th>
+        <th>Candidatos / producto</th>
+        <th>Acción</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+        {% include "matches/_row.html" %}
+      {% else %}
+        <tr><td colspan="6">No hay elementos pendientes de revisión.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% set total_pages = ((meta.total - 1) // meta.limit) + 1 if meta.total > 0 else 1 %}
+  {% if total_pages > 1 %}
+    <nav class="pagination">
+      {% if meta.page > 1 %}
+        <a href="/admin/matches?status={{ status }}&page={{ meta.page - 1 }}">&laquo; Anterior</a>
+      {% endif %}
+      <span>Página {{ meta.page }} de {{ total_pages }} ({{ meta.total }} en total)</span>
+      {% if meta.page < total_pages %}
+        <a href="/admin/matches?status={{ status }}&page={{ meta.page + 1 }}">Siguiente &raquo;</a>
+      {% endif %}
+    </nav>
+  {% endif %}
+</div>

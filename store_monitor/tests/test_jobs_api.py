@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import jobs_api
+import matcher
 import persistence
 import scheduler
 
@@ -86,6 +87,32 @@ class TestAuth:
 
         auth_buena = client.post("/jobs/daily-sweep", headers={"Authorization": "Bearer secreto"})
         assert auth_buena.status_code == 200
+
+
+class TestRunMatching:
+    """POST /jobs/run-matching -- a diferencia de los jobs de scraping, corre
+    síncrono (sin hilo de fondo, sin scrape_run) porque matcher.run_matching
+    no hace red, solo una pasada de SQL."""
+
+    def test_devuelve_los_contadores_de_run_matching(self, client, monkeypatch):
+        fake_conn = MagicMock()
+        monkeypatch.setattr(persistence, "get_connection", MagicMock(return_value=fake_conn))
+        monkeypatch.setattr(matcher, "run_matching", MagicMock(return_value={"confirmed": 3, "needs_review": 1}))
+
+        resp = client.post("/jobs/run-matching")
+
+        assert resp.status_code == 200
+        assert resp.json() == {"counts": {"confirmed": 3, "needs_review": 1}}
+
+    def test_cierra_la_conexion_incluso_si_run_matching_revienta(self, client, monkeypatch):
+        fake_conn = MagicMock()
+        monkeypatch.setattr(persistence, "get_connection", MagicMock(return_value=fake_conn))
+        monkeypatch.setattr(matcher, "run_matching", MagicMock(side_effect=RuntimeError("boom")))
+
+        with pytest.raises(RuntimeError):
+            client.post("/jobs/run-matching")
+
+        fake_conn.close.assert_called_once()
 
 
 class TestListRuns:

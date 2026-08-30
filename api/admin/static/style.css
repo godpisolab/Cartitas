@@ -109,3 +109,11 @@ button {
   padding: 0.5rem 0.75rem;
   border-radius: 3px;
 }
+
+.form-message {
+  background: #e8f4fd;
+  color: #0c3f61;
+  border: 1px solid #bde0f8;
+  padding: 0.5rem 0.75rem;
+  border-radius: 3px;
+}

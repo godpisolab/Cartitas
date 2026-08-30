@@ -7,35 +7,17 @@
       <a href="/admin/matches?status={{ value }}" class="{{ 'active' if status == value }}">{{ label }}</a>
     {% endfor %}
   </nav>
-  <table class="matches-table">
-    <thead>
-      <tr>
-        <th>Tienda</th>
-        <th>Nombre en tienda</th>
-        <th>Precio</th>
-        <th>Estado</th>
-        <th>Candidatos / producto</th>
-        <th>Acción</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for item in items %}
-        {% include "matches/_row.html" %}
-      {% else %}
-        <tr><td colspan="6">No hay elementos pendientes de revisión.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% set total_pages = ((meta.total - 1) // meta.limit) + 1 if meta.total > 0 else 1 %}
-  {% if total_pages > 1 %}
-    <nav class="pagination">
-      {% if meta.page > 1 %}
-        <a href="/admin/matches?status={{ status }}&page={{ meta.page - 1 }}">&laquo; Anterior</a>
-      {% endif %}
-      <span>Página {{ meta.page }} de {{ total_pages }} ({{ meta.total }} en total)</span>
-      {% if meta.page < total_pages %}
-        <a href="/admin/matches?status={{ status }}&page={{ meta.page + 1 }}">Siguiente &raquo;</a>
-      {% endif %}
-    </nav>
+  <form hx-post="/admin/matches/run-matching?status={{ status }}" hx-target="#matches-wrapper" hx-swap="outerHTML">
+    <button type="submit">Relanzar matching</button>
+  </form>
+  {% if status in ("needsReview", "unmatched") %}
+    <p>
+      <a href="/admin/matches?status={{ status }}&includeCatalogGaps={{ 'false' if include_catalog_gaps else 'true' }}">
+        {{ "Ocultar huecos de catálogo" if include_catalog_gaps else "Mostrar huecos de catálogo conocidos" }}
+      </a>
+      — filas con la clasificación correcta pero sin ningún canónico sembrado
+      todavía (ver <a href="/admin/missing-candidates">Huecos de catálogo</a>).
+    </p>
   {% endif %}
+  {% include "matches/_wrapper.html" %}
 {% endblock %}

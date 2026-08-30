@@ -31,6 +31,15 @@ class MatchFilters:
     min_similarity: float | None = None
     max_similarity: float | None = None
     include_reviewed: bool = False
+    # Por defecto, needsReview/unmatched esconden filas cuya clasificación
+    # coincide con un hueco de catálogo YA CONOCIDO (mismo product_type/
+    # set_code/idioma/packaging sin ningún canónico, con demanda de 2+
+    # tiendas -- ver services/matches.py::_missing_candidate_keys()): no hay
+    # nada que un revisor pueda hacer con ellas hasta que se siembre el
+    # canónico nuevo, y se autorresuelven solas en cuanto exista. Nunca
+    # afecta a "all"/"confirmed". True para verlas de todos modos (auditoría
+    # puntual, o para confirmar que de verdad no hay nada que revisar ahí).
+    include_catalog_gaps: bool = False
     page: int = 1
     limit: int = 50
 
@@ -81,4 +90,5 @@ class MissingCandidateItem(CamelModel):
     set_code: str | None
     main_set: str | None
     language: str | None
+    packaging: str | None
     store_count: int

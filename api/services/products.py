@@ -105,6 +105,7 @@ def search(session: Session, filters: ProductFilters) -> Page[ProductSummary]:
             category=category_slug,
             set_code=product.set_code,
             language=product.language,
+            packaging=product.packaging,
             min_price=float(min_price) if min_price is not None else None,
             store_count=store_count,
             any_in_stock=any_in_stock,
@@ -144,7 +145,8 @@ def get_by_id(session: Session, product_id: int) -> ProductDetail:
 
     return ProductDetail(
         id=product.id, name_canonical=product.name_canonical, game=game_slug, category=category_slug,
-        set_code=product.set_code, main_set=product.main_set, language=product.language, listings=listings,
+        set_code=product.set_code, main_set=product.main_set, language=product.language,
+        packaging=product.packaging, listings=listings,
     )
 
 
@@ -218,7 +220,8 @@ def _to_detail_without_listings(session: Session, product: Product) -> ProductDe
     category_slug = session.exec(select(Category.slug).where(Category.id == product.category_id)).one()
     return ProductDetail(
         id=product.id, name_canonical=product.name_canonical, game=game_slug, category=category_slug,
-        set_code=product.set_code, main_set=product.main_set, language=product.language, listings=[],
+        set_code=product.set_code, main_set=product.main_set, language=product.language,
+        packaging=product.packaging, listings=[],
     )
 
 

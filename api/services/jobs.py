@@ -16,14 +16,19 @@ from errors import BadGatewayError, NotFoundError
 # ver scheduler.launch_*), así que un timeout corto es de sobra.
 _TIMEOUT = 10.0
 
+# /jobs/run-matching sí espera a que la pasada termine (no es un scrape, no
+# hace red -- una query SQL sobre store_product), pero sobre un catálogo
+# grande puede tardar más que el timeout corto de arriba.
+_RUN_MATCHING_TIMEOUT = 60.0
+
 
 def _headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {JOBS_API_TOKEN}"} if JOBS_API_TOKEN else {}
 
 
-def _request(method: str, path: str, **kwargs) -> httpx.Response:
+def _request(method: str, path: str, *, timeout: float = _TIMEOUT, **kwargs) -> httpx.Response:
     try:
-        resp = httpx.request(method, f"{JOBS_API_URL}{path}", headers=_headers(), timeout=_TIMEOUT, **kwargs)
+        resp = httpx.request(method, f"{JOBS_API_URL}{path}", headers=_headers(), timeout=timeout, **kwargs)
     except httpx.RequestError as e:
         raise BadGatewayError(f"no se pudo contactar con el servicio de jobs: {e}") from e
 
@@ -51,6 +56,12 @@ def trigger_store_scrape(label: str, *, persist: bool = False) -> int:
     escribe en store_product/price_history, el resultado se ve igualmente
     en GET /jobs/runs/{run_id} (campo `results`) una vez termina."""
     return _request("POST", f"/jobs/store/{label}", params={"persist": persist}).json()["run_id"]
+
+
+def trigger_run_matching() -> dict:
+    """Relanza el matcher sobre toda la cola no confirmada; devuelve el
+    conteo de match_status resultante (p.ej. {"confirmed": 12, "needs_review": 3})."""
+    return _request("POST", "/jobs/run-matching", timeout=_RUN_MATCHING_TIMEOUT).json()["counts"]
 
 
 def get_run(run_id: int) -> dict:

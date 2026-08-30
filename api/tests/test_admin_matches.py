@@ -5,10 +5,15 @@ BBDD real, credenciales de HTTP Basic en vez de Bearer
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 from sqlalchemy import text
 
+import services.jobs as jobs_service
+from errors import BadGatewayError
 
-def seed_category(session, slug="booster-box"):
+
+def seed_category(session, slug="one-piece"):
     row = session.exec(
         text("INSERT INTO category (name, slug) VALUES (:slug, :slug) RETURNING id"), params={"slug": slug},
     ).first()
@@ -37,7 +42,7 @@ def seed_store_product(session, *, raw_name="One Piece TCG OP16 Booster Box (EN)
 
 
 def seed_product(session, *, name_canonical="Booster Box: The Time of Battle OP-16 EN", category_id=None,
-                  main_set="OP16", language="EN") -> int:
+                  main_set="OP16", language="EN", set_code=None, packaging=None) -> int:
     session.exec(text("INSERT INTO game (name, slug) VALUES ('One Piece', 'one-piece') "
                        "ON CONFLICT (slug) DO NOTHING"))
     game_id = session.exec(text("SELECT id FROM game WHERE slug = 'one-piece'")).first()[0]
@@ -45,10 +50,11 @@ def seed_product(session, *, name_canonical="Booster Box: The Time of Battle OP-
         category_id = seed_category(session)
     product_id = session.exec(
         text("""
-            INSERT INTO product (game_id, category_id, main_set, language, name_canonical)
-            VALUES (:g, :c, :m, :l, :n) RETURNING id
+            INSERT INTO product (game_id, category_id, main_set, language, name_canonical, set_code, packaging)
+            VALUES (:g, :c, :m, :l, :n, :sc, :pkg) RETURNING id
         """),
-        params={"g": game_id, "c": category_id, "m": main_set, "l": language, "n": name_canonical},
+        params={"g": game_id, "c": category_id, "m": main_set, "l": language, "n": name_canonical,
+                "sc": set_code, "pkg": packaging},
     ).first()[0]
     session.commit()
     return product_id
@@ -93,7 +99,7 @@ class TestAdminAuth:
 
 class TestAdminListMatches:
     def test_lista_por_defecto_needs_review(self, session, client, admin_credentials):
-        seed_product(session)
+        seed_product(session, set_code="OP16", packaging="display")
         seed_store_product(session, match_status="needs_review")
         seed_store_product(session, match_status="unmatched", store_name="Otra")
 
@@ -146,6 +152,7 @@ class TestAdminListMatches:
         # solo pedía page=1 (limit=50 por defecto) sin exponer ?page= ni
         # ningún enlace de paginación -- las otras 137 filas eran
         # invisibles desde el navegador.
+        seed_product(session, set_code="OP16", packaging="display")
         for i in range(51):
             seed_store_product(session, store_name=f"Tienda{i}")
 
@@ -171,6 +178,52 @@ class TestAdminListMatches:
         assert "Página" not in resp.text
 
 
+class TestAdminRunMatching:
+    """Botón "Relanzar matching" -- delega en services/jobs.py (HTTP hacia
+    store_monitor/jobs_api.py, ver docstring de esa función), mockeado aquí
+    igual que test_admin_jobs.py hace con los triggers de scraping."""
+
+    def test_sin_credenciales_es_401(self, client):
+        assert client.post("/admin/matches/run-matching").status_code == 401
+
+    def test_ok_muestra_el_resumen_y_refresca_la_tabla(self, session, client, admin_credentials, monkeypatch):
+        seed_product(session)
+        seed_store_product(session, match_status="needs_review")
+        monkeypatch.setattr(jobs_service, "trigger_run_matching", MagicMock(
+            return_value={"confirmed": 1, "needs_review": 2}
+        ))
+
+        resp = client.post("/admin/matches/run-matching", auth=admin_credentials)
+
+        assert resp.status_code == 200
+        assert "Matching relanzado" in resp.text
+        assert "1 confirmed" in resp.text
+        assert "2 needs_review" in resp.text
+        assert 'id="matches-wrapper"' in resp.text
+
+    def test_respeta_el_filtro_de_status_actual(self, session, client, admin_credentials, monkeypatch):
+        seed_product(session)
+        seed_store_product(session, match_status="unmatched")
+        monkeypatch.setattr(jobs_service, "trigger_run_matching", MagicMock(return_value={"unmatched": 1}))
+
+        resp = client.post("/admin/matches/run-matching?status=unmatched", auth=admin_credentials)
+
+        assert resp.status_code == 200
+        assert "unmatched" in resp.text.lower()
+
+    def test_servicio_de_jobs_caido_muestra_mensaje_en_vez_de_reventar(self, client, admin_credentials, monkeypatch):
+        # Mismo patrón que TestServicioInternoCaido en test_admin_jobs.py:
+        # 200 a propósito -- htmx no hace swap de respuestas de error.
+        monkeypatch.setattr(jobs_service, "trigger_run_matching", MagicMock(
+            side_effect=BadGatewayError("no se pudo contactar con el servicio de jobs")
+        ))
+
+        resp = client.post("/admin/matches/run-matching", auth=admin_credentials)
+
+        assert resp.status_code == 200
+        assert "no se pudo contactar" in resp.text
+
+
 class TestAdminRejectForm:
     def test_fila_pendiente_muestra_formulario_con_select_y_reason(self, session, client, admin_credentials):
         seed_store_product(session, match_status="needs_review")
@@ -192,7 +245,7 @@ class TestAdminMissingCandidates:
         resp = client.get("/admin/missing-candidates", auth=admin_credentials)
 
         assert resp.status_code == 200
-        assert "BOOSTER_BOX" in resp.text
+        assert "ONE_PIECE" in resp.text
         assert "<td>2</td>" in resp.text
 
     def test_respeta_min_stores(self, session, client, admin_credentials):
@@ -210,7 +263,8 @@ class TestAdminMissingCandidates:
         resp = client.get("/admin/missing-candidates", auth=admin_credentials)
 
         assert resp.status_code == 200
-        assert "/admin/products/new?productType=BOOSTER_BOX&setCode=OP17&mainSet=OP17&language=EN" in resp.text
+        assert "/admin/products/new?productType=ONE_PIECE&setCode=OP17&mainSet=OP17&language=EN&packaging=display" \
+            in resp.text
 
     def test_requiere_credenciales(self, client):
         resp = client.get("/admin/missing-candidates")

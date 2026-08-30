@@ -34,7 +34,7 @@ Errores de auth: `401` (falta la cabecera o la key no existe), `403` (key válid
 |---|---|---|
 | `q` | string | texto libre sobre `nameCanonical` (`pg_trgm`) |
 | `game` | string | slug (`one-piece`, `pokemon`) |
-| `category` | string | slug (`booster-box`, `starter-deck`...) |
+| `category` | string | slug (`one-piece`, `starter-deck`...) |
 | `setCode` | string | ej. `OP16` |
 | `language` | `EN` \| `JP` \| `ES` | |
 | `minPrice`, `maxPrice` | number | sobre el precio mínimo actual entre tiendas |
@@ -49,9 +49,10 @@ Errores de auth: `401` (falta la cabecera o la key no existe), `403` (key válid
       "id": 301,
       "nameCanonical": "Booster Box: The Time of Battle OP-16 EN",
       "game": "one-piece",
-      "category": "booster-box",
+      "category": "one-piece",
       "setCode": "OP16",
       "language": "EN",
+      "packaging": "display",
       "minPrice": 109.90,
       "storeCount": 6,
       "anyInStock": true
@@ -65,6 +66,8 @@ Solo cuentan `storeProduct` con `matchStatus = confirmed` para `minPrice`/`store
 
 **Corregido (2026-08-27):** `minPrice` puede ser `null` -- un `storeProduct` confirmado con `currentPrice` sin parsear (preventa, o el scraper no pudo leer el precio esa pasada) hace que `MIN()` devuelva `NULL`. Bug real encontrado en producción: la implementación original asumía `minPrice` siempre numérico y reventaba el endpoint entero con `500` en cuanto existía un caso así -- corregido en `services/products.py`/`schemas/products.py` (`ProductSummary.min_price: float | None`).
 
+**`packaging` (Recognition Pipeline, docs/propuestas/guia_nuevo_matcher.md):** `"sobre"` | `"display"` | `"case"` | `null`. Sustituye a la antigua separación caja/sobre/case POR CATEGORÍA (antes `booster-box`/`booster-pack`/`booster-case` eran tres categorías distintas) -- ahora conviven en `category: "one-piece"` (igual para `extra-booster`/`premium-booster-box`), distinguidas por este campo. `null` para família sin esa dimensión (Illustration Box, Playmat, Sleeves, Devil Fruits Collection, Premium Card Collection).
+
 ### `GET /products/{id}`
 
 **Respuesta `200`:**
@@ -73,10 +76,11 @@ Solo cuentan `storeProduct` con `matchStatus = confirmed` para `minPrice`/`store
   "id": 301,
   "nameCanonical": "Booster Box: The Time of Battle OP-16 EN",
   "game": "one-piece",
-  "category": "booster-box",
+  "category": "one-piece",
   "setCode": "OP16",
   "mainSet": "OP16",
   "language": "EN",
+  "packaging": "display",
   "listings": [
     {
       "storeId": 12,
@@ -219,7 +223,7 @@ Pensado para el panel de revisión/depuración, no para el frontend público —
     {
       "id": 1, "name": "Sellado", "slug": "sellado",
       "children": [
-        { "id": 3, "name": "Booster Box", "slug": "booster-box" },
+        { "id": 3, "name": "One Piece", "slug": "one-piece" },
         { "id": 4, "name": "Starter Deck", "slug": "starter-deck" }
       ]
     },
@@ -231,7 +235,9 @@ Pensado para el panel de revisión/depuración, no para el frontend público —
 }
 ```
 
-`Lote de cartas`/`Otros` (D.3) nunca aparecen aquí — no están sembrados en `category` a propósito.
+`Lote de cartas`/`Otros`/`Promo Card`/`Mystery Pack`/`Dice / Accessory` nunca aparecen aquí — no están sembrados en `category` a propósito (Recognition Pipeline, Fase 0: ninguno tiene un canónico de producto sellado razonable con el que comparar precio).
+
+**Taxonomía de categorías-hoja (10, Recognition Pipeline):** `one-piece` (funde las antiguas `booster-box`/`booster-pack`/`booster-case` — la distinción caja/sobre/case pasó a ser el campo `packaging`, ver sección 1), `extra-booster`, `premium-booster-box`, `premium-card-collection` (la antigua `premium-collection` se separó en estas dos: son productos distintos, no variantes de empaquetado del mismo), `starter-deck` (funde la antigua `learn-deck`), `illustration-box`, `double-pack`, `devil-fruits-collection`, `sleeves` (nueva), `playmat`.
 
 ---
 
@@ -361,6 +367,7 @@ Crea un producto canónico a mano — para sembrar un set recién lanzado, o cua
   "setCode": "OP17",
   "mainSet": "OP17",
   "language": "EN",
+  "packaging": "display",
   "nameCanonical": "Booster Box: The World's Strongest Warriors OP-17 EN",
   "imageUrl": null,
   "isHot": true,
@@ -369,6 +376,8 @@ Crea un producto canónico a mano — para sembrar un set recién lanzado, o cua
 ```
 
 **Respuesta `201`** con el `product` creado. `409` si ya existe un `product` con el mismo `gameId` + `nameCanonical` (evita duplicados desde el panel, mismo criterio de idempotencia que ya usa `seed_official_catalog.py`).
+
+`packaging` (opcional): `"sobre"` \| `"display"` \| `"case"` \| `null` — obligatorio en la práctica para família que sí tiene esa dimensión (ver `docs/propuestas/guia_nuevo_matcher.md`), porque `matcher.py` lo usa para el desempate/auto-confirmado; se deja `null` para família de unidad única (Illustration Box, Playmat, Sleeves...).
 
 ---
 
