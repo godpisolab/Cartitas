@@ -5,6 +5,11 @@ name: Tests
 # seed viven fuera de store_monitor/tests/, y un filtro mal ajustado es la
 # forma más común de que "CI en verde" deje de significar algo sin que
 # nadie se entere.
+#
+# Los dos jobs delegan en run_tests.py (raíz del repo) -- el mismo script
+# que se usa en local -- para instalar dependencias, comprobar/preparar
+# Postgres y correr pytest. Mismo comportamiento en los dos sitios a
+# propósito: "pasa en mi máquina" y "pasa en CI" deben significar lo mismo.
 "on":
   push:
   pull_request:
@@ -13,14 +18,15 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    # Postgres real como servicio del job -- en local, sin Docker, 40 de los
-    # 269 tests se saltan con gracia (ver tests/conftest.py); en CI no debe
-    # pasar nunca: si el servicio no arranca, el job falla en el healthcheck,
-    # no deja pasar un run silenciosamente incompleto.
+    # Postgres real como servicio del job -- en local, sin Docker, esos
+    # tests se saltan con gracia (ver tests/conftest.py); en CI no debe
+    # pasar nunca: `--fail-on-skipped` (más abajo) hace fallar el job si
+    # algún test queda SKIPPED, en vez de dejar pasar un run silenciosamente
+    # incompleto.
     #
-    # POSTGRES_DB ya se llama cartitas_test -- coincide con el nombre que
-    # tests/conftest.py espera por defecto (ver TEST_DATABASE_URL), así que
-    # no hace falta un paso aparte de "CREATE DATABASE".
+    # POSTGRES_DB ya se llama cartitas_test -- run_tests.py detecta que ya
+    # existe (vía la base administrativa "postgres") y solo reaplica el
+    # esquema/seed encima, sin necesitar un paso `CREATE DATABASE` aparte.
     services:
       postgres:
         image: postgres:16
@@ -47,55 +53,17 @@ jobs:
             store_monitor/requirements.txt
             store_monitor/requirements-dev.txt
 
-      # working-directory, no rutas "store_monitor/requirements.txt" desde la
-      # raíz: requirements.txt declara `-e ../shared`, y pip resuelve rutas
-      # relativas de -e contra el directorio DESDE el que se invoca pip, no
-      # contra la ubicación del propio requirements.txt -- sin esto, `../shared`
-      # apuntaría fuera del repo.
-      - name: Instalar dependencias
-        working-directory: store_monitor
-        run: |
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
-
-      # Mismo procedimiento que describe el docstring de tests/conftest.py
-      # para levantarlo a mano en local -- aquí automatizado. El healthcheck
-      # de arriba ya garantiza que Postgres acepta conexiones antes de este
-      # paso, así que no hace falta sleep/retry adicional.
-      - name: Aplicar esquema y seed a cartitas_test
-        env:
-          PGPASSWORD: cartitas
-        run: |
-          psql -h localhost -p 5433 -U cartitas -d cartitas_test -v ON_ERROR_STOP=1 -f schema-postgresql-app-tcg.sql
-          psql -h localhost -p 5433 -U cartitas -d cartitas_test -v ON_ERROR_STOP=1 -f seed-catalog-app-tcg.sql
-
-      # Una sola ejecución de pytest. Se comprueba primero el código de
-      # salida REAL de pytest (a través de la tubería con `pipefail`, para
-      # que un fallo de test no quede enmascarado por el exit code de
-      # `tee`) y solo si los tests pasaron se comprueba que no haya ningún
-      # SKIPPED -- en CI, con Postgres siempre disponible, un test saltado
-      # significa que el entorno no se montó bien (p.ej. el seed no se
-      # aplicó), no que falte una dependencia opcional como en local.
+      # run_tests.py --only store_monitor hace, en este orden: instala
+      # shared + store_monitor/requirements-dev.txt; comprueba que Postgres
+      # responda (el healthcheck de arriba ya lo garantiza, así que no
+      # levanta nada por su cuenta); reaplica schema+seed sobre
+      # cartitas_test desde cero; corre pytest con los flags de cobertura,
+      # y falla si queda algún SKIPPED (--fail-on-skipped).
       - name: Ejecutar la suite completa
-        env:
-          TEST_DATABASE_URL: postgresql://cartitas:cartitas@localhost:5433/cartitas_test
-        working-directory: store_monitor
         shell: bash
         run: |
-          set -o pipefail
-          python -m pytest -v -rs --cov --cov-report=term-missing --cov-report=xml \
-            | tee /tmp/pytest_output.txt
-          test_status=$?
-
-          if [ "$test_status" -ne 0 ]; then
-            exit "$test_status"
-          fi
-
-          if grep -q "^SKIPPED" /tmp/pytest_output.txt; then
-            echo "::error::Hay tests SKIPPED en CI -- el servicio de Postgres debería estar siempre disponible aquí. Revisa el paso 'Aplicar esquema y seed'."
-            grep "^SKIPPED" /tmp/pytest_output.txt
-            exit 1
-          fi
+          python run_tests.py --only store_monitor --fail-on-skipped \
+            -- -v -rs --cov --cov-report=term-missing --cov-report=xml
 
       - name: Subir informe de cobertura
         if: always()
@@ -111,8 +79,10 @@ jobs:
     # requirements.txt (fastapi/sqlmodel, sin cloudscraper/pybreaker/
     # apscheduler) y su propio ciclo de vida, ver
     # docs/estandares-implementacion-api.md sección 1. Comparte la MISMA
-    # cartitas_test que el scraper (mismo esquema), pero no tiene sentido
-    # instalar las dependencias del otro servicio para correr esto.
+    # cartitas_test que el scraper (mismo esquema, en un Postgres de
+    # servicio propio de este job, no compartido con el otro), pero no
+    # tiene sentido instalar las dependencias del otro servicio para correr
+    # esto -- run_tests.py --only api ya no lo hace.
     services:
       postgres:
         image: postgres:16
@@ -139,44 +109,11 @@ jobs:
             api/requirements.txt
             api/requirements-dev.txt
 
-      # Mismo motivo que en el job del scraper: api/requirements.txt declara
-      # `-e ../shared`, resuelto por pip contra el directorio de invocación.
-      - name: Instalar dependencias
-        working-directory: api
-        run: |
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
-
-      - name: Aplicar esquema y seed a cartitas_test
-        env:
-          PGPASSWORD: cartitas
-        run: |
-          psql -h localhost -p 5433 -U cartitas -d cartitas_test -v ON_ERROR_STOP=1 -f schema-postgresql-app-tcg.sql
-          psql -h localhost -p 5433 -U cartitas -d cartitas_test -v ON_ERROR_STOP=1 -f seed-catalog-app-tcg.sql
-
-      # Mismo criterio que en el job del scraper: un SKIPPED en CI (con
-      # Postgres siempre disponible) significa que el entorno no se montó
-      # bien, no que falte una dependencia opcional.
       - name: Ejecutar la suite completa
-        env:
-          TEST_DATABASE_URL: postgresql://cartitas:cartitas@localhost:5433/cartitas_test
-        working-directory: api
         shell: bash
         run: |
-          set -o pipefail
-          python -m pytest -v -rs --cov --cov-report=term-missing --cov-report=xml \
-            | tee /tmp/pytest_api_output.txt
-          test_status=$?
-
-          if [ "$test_status" -ne 0 ]; then
-            exit "$test_status"
-          fi
-
-          if grep -q "^SKIPPED" /tmp/pytest_api_output.txt; then
-            echo "::error::Hay tests SKIPPED en CI -- el servicio de Postgres debería estar siempre disponible aquí. Revisa el paso 'Aplicar esquema y seed'."
-            grep "^SKIPPED" /tmp/pytest_api_output.txt
-            exit 1
-          fi
+          python run_tests.py --only api --fail-on-skipped \
+            -- -v -rs --cov --cov-report=term-missing --cov-report=xml
 
       - name: Subir informe de cobertura
         if: always()
